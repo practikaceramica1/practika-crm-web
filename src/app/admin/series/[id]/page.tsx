@@ -21,6 +21,11 @@ type Props = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
+function pickRelation<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] || null : value;
+}
+
 function parseFormatForSort(label: string): [number, number] {
   const cleaned = label.replace(",", ".").toLowerCase();
   const [w, h] = cleaned.split("x");
@@ -128,10 +133,11 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
 
   const groupedFilters = Object.values(
     (filterOptions || [])
-      .filter((x) => x.filter_groups?.key !== "formats")
+      .filter((x) => pickRelation(x.filter_groups)?.key !== "formats")
       .reduce<Record<string, { key: string; name: string; options: { id: string; label: string }[] }>>((acc, opt) => {
-        const key = opt.filter_groups?.key || "otros";
-        if (!acc[key]) acc[key] = { key, name: opt.filter_groups?.name || "Otros", options: [] };
+        const group = pickRelation(opt.filter_groups);
+        const key = group?.key || "otros";
+        if (!acc[key]) acc[key] = { key, name: group?.name || "Otros", options: [] };
         acc[key].options.push({ id: opt.id, label: opt.label });
         return acc;
       }, {})
@@ -145,7 +151,13 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
       .map((m) => ({ value: m.label, label: m.label })),
   ];
 
-  const colorsByFormat = (colors || []).reduce<Record<string, typeof colors>>((acc, c) => {
+  const colorRows = (colors || []) as Array<{
+    id: string;
+    color_name: string;
+    variant_type: string;
+    format_material_id: string;
+  }>;
+  const colorsByFormat = colorRows.reduce<Record<string, typeof colorRows>>((acc, c) => {
     if (!acc[c.format_material_id]) acc[c.format_material_id] = [];
     acc[c.format_material_id].push(c);
     return acc;
@@ -245,7 +257,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
             <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {sortedFormats.map((f) => (
                 <div key={f.id} className="rounded-lg border border-slate-200 p-3">
-                  <p className="font-semibold">{f.format_label} · {f.materials?.name}</p>
+                  <p className="font-semibold">{f.format_label} · {pickRelation(f.materials)?.name}</p>
                 </div>
               ))}
               {sortedFormats.length === 0 ? <p className="text-sm text-slate-500">No hay formatos creados.</p> : null}
@@ -274,7 +286,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
             <div className="mt-3 space-y-2 text-sm">
               {sortedFormats.map((f) => (
                 <div key={f.id} className="rounded-lg border border-slate-200 p-3">
-                  <p className="font-semibold">{f.format_label} · {f.materials?.name}</p>
+                  <p className="font-semibold">{f.format_label} · {pickRelation(f.materials)?.name}</p>
                   <p className="text-xs text-slate-500">{(formatFilterIdsByFormat[f.id] || seriesFilterIds).length} filtros activos</p>
                 </div>
               ))}
@@ -288,7 +300,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
           {sortedFormats.map((f) => (
             <details key={f.id} className="card" open>
               <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3">
-                <p className="font-semibold">{f.format_label} · {f.materials?.name}</p>
+                <p className="font-semibold">{f.format_label} · {pickRelation(f.materials)?.name}</p>
                 <span className="text-xs text-slate-500">{(colorsByFormat[f.id] || []).length} colores</span>
               </summary>
               <div className="border-t border-slate-200 p-4">
