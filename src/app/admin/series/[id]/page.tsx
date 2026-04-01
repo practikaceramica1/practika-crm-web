@@ -47,7 +47,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
   const needsFormats = view === "formats" || view === "filters" || view === "colors";
   const needsMaterials = view === "formats";
   const needsAssets = view === "documents";
-  const needsFilters = view === "filters" || view === "colors";
+  const needsFilters = view === "formats" || view === "filters" || view === "colors";
   const needsColors = view === "colors";
 
   const [
@@ -131,9 +131,25 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
   if (colorFiltersError) throw new Error(colorFiltersError.message);
   if (!series) notFound();
 
+  const materialFilterOptions = (filterOptions || [])
+    .filter((opt) => {
+      const group = pickRelation(opt.filter_groups);
+      const key = String(group?.key || "").toLowerCase();
+      const name = String(group?.name || "").toLowerCase();
+      return key === "materials" || key === "material" || name.includes("material");
+    })
+    .map((opt) => ({ id: opt.id, label: opt.label }));
+
   const groupedFilters = Object.values(
     (filterOptions || [])
-      .filter((x) => pickRelation(x.filter_groups)?.key !== "formats")
+      .filter((x) => {
+        const group = pickRelation(x.filter_groups);
+        const key = String(group?.key || "").toLowerCase();
+        const name = String(group?.name || "").toLowerCase();
+        if (key === "formats") return false;
+        if (key === "materials" || key === "material" || name.includes("material")) return false;
+        return true;
+      })
       .reduce<Record<string, { key: string; name: string; options: { id: string; label: string }[] }>>((acc, opt) => {
         const group = pickRelation(opt.filter_groups);
         const key = group?.key || "otros";
@@ -143,13 +159,12 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
       }, {})
   );
 
-  const materialFilterOptions = groupedFilters.find((g) => g.key === "materials")?.options || [];
   const materialValues = [
     ...(materials || []).map((m) => ({ value: m.name, label: m.name })),
     ...materialFilterOptions
       .filter((m) => !(materials || []).some((x) => x.name.toLowerCase() === m.label.toLowerCase()))
       .map((m) => ({ value: m.label, label: m.label })),
-  ];
+  ].sort((a, b) => a.label.localeCompare(b.label, "es"));
 
   const colorRows = (colors || []) as Array<{
     id: string;
