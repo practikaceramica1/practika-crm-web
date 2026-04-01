@@ -1,6 +1,8 @@
 import { ReactNode } from "react";
 import { requireAdminUser } from "@/lib/auth";
+import { FormPendingSection } from "@/components/admin/FormPendingSection";
 import { Sidebar } from "@/components/admin/Sidebar";
+import { SubmitButton } from "@/components/admin/SubmitButton";
 import { signOutAction } from "./actions";
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {
@@ -17,7 +19,11 @@ export default async function AdminLayout({ children }: { children: ReactNode })
               <h2 className="text-lg font-semibold text-slate-900">Constructor de catálogo</h2>
             </div>
             <form action={signOutAction}>
-              <button className="btn-secondary">{user.email} · Salir</button>
+              <FormPendingSection>
+                <SubmitButton className="btn-secondary" pendingText="Saliendo...">
+                  {user.email} · Salir
+                </SubmitButton>
+              </FormPendingSection>
             </form>
           </div>
         </header>

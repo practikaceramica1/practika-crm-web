@@ -6,8 +6,8 @@ import { z } from "zod";
 import { requireAdminUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { slugify } from "@/lib/text";
-import { uploadToR2 } from "@/lib/uploads/r2";
-import { uploadImageToCloudinary } from "@/lib/uploads/cloudinary";
+import { copyObjectInR2, deleteObjectFromR2, uploadToR2 } from "@/lib/uploads/r2";
+import { deleteCloudinaryImage, renameCloudinaryImage, uploadImageToCloudinary } from "@/lib/uploads/cloudinary";
 
 const createSeriesSchema = z.object({ name: z.string().min(2) });
 const deleteSeriesSchema = z.object({ seriesId: z.string().uuid() });
@@ -29,6 +29,45 @@ const bulkColorSchema = z.object({
   variantType: z.enum(["regular", "decor", "relieve", "c3"]).default("regular"),
   itemsJson: z.string().min(2),
 });
+const renameAssetSchema = z.object({
+  assetId: z.string().uuid(),
+  newName: z.string().min(1),
+});
+const deleteAssetSchema = z.object({
+  assetId: z.string().uuid(),
+});
+
+type DocAssetType = "technical_panel" | "catalog_pdf" | "ambient_image";
+
+function getAssetSection(assetType: DocAssetType) {
+  if (assetType === "technical_panel") return "panel-tecnico";
+  if (assetType === "catalog_pdf") return "catalogo";
+  return "ambiente";
+}
+
+function getAssetFolder(assetType: DocAssetType) {
+  if (assetType === "technical_panel") return "paneles-tecnicos";
+  if (assetType === "catalog_pdf") return "catalogos";
+  return "ambientes";
+}
+
+function inferExtension(fileName: string, mimeType?: string | null) {
+  const cleanName = fileName.trim().toLowerCase();
+  const fromName = cleanName.includes(".") ? cleanName.split(".").pop() || "" : "";
+  if (fromName) return fromName;
+  if (!mimeType) return "bin";
+  if (mimeType.includes("pdf")) return "pdf";
+  if (mimeType.includes("png")) return "png";
+  if (mimeType.includes("webp")) return "webp";
+  if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return "jpg";
+  return "bin";
+}
+
+function buildPatternFileName(seriesSlug: string, assetType: DocAssetType, order: number, ext: string) {
+  const section = getAssetSection(assetType);
+  const index = String(order).padStart(2, "0");
+  return `${seriesSlug}-${section}-${index}.${ext}`;
+}
 
 export async function createSeriesAction(formData: FormData) {
   await requireAdminUser();
@@ -55,7 +94,65 @@ export async function deleteSeriesAction(formData: FormData) {
   });
   if (!parsed.success) throw new Error("Serie inválida");
 
-  const { error } = await supabase.from("series").delete().eq("id", parsed.data.seriesId);
+  const seriesId = parsed.data.seriesId;
+
+  const assetsResult = await supabase
+    .from("series_assets")
+    .select("id,storage_provider,file_key")
+    .eq("series_id", seriesId);
+  if (assetsResult.error) throw new Error(assetsResult.error.message);
+
+  for (const asset of assetsResult.data || []) {
+    if (asset.storage_provider === "r2") {
+      await deleteObjectFromR2(asset.file_key);
+    } else {
+      await deleteCloudinaryImage(asset.file_key);
+    }
+  }
+
+  const formatsResult = await supabase.from("format_materials").select("id").eq("series_id", seriesId);
+  if (formatsResult.error) throw new Error(formatsResult.error.message);
+  const formatIds = (formatsResult.data || []).map((f) => f.id);
+
+  if (formatIds.length > 0) {
+    const colorsResult = await supabase
+      .from("article_colors")
+      .select("id")
+      .in("format_material_id", formatIds);
+    if (colorsResult.error) throw new Error(colorsResult.error.message);
+    const colorIds = (colorsResult.data || []).map((c) => c.id);
+
+    if (colorIds.length > 0) {
+      const colorFiltersDelete = await supabase
+        .from("article_color_filter_options")
+        .delete()
+        .in("article_color_id", colorIds);
+      if (colorFiltersDelete.error) throw new Error(colorFiltersDelete.error.message);
+    }
+
+    const formatFiltersDelete = await supabase
+      .from("format_material_filter_options")
+      .delete()
+      .in("format_material_id", formatIds);
+    if (formatFiltersDelete.error) throw new Error(formatFiltersDelete.error.message);
+
+    const colorsDelete = await supabase
+      .from("article_colors")
+      .delete()
+      .in("format_material_id", formatIds);
+    if (colorsDelete.error) throw new Error(colorsDelete.error.message);
+  }
+
+  const seriesFiltersDelete = await supabase.from("series_filter_options").delete().eq("series_id", seriesId);
+  if (seriesFiltersDelete.error) throw new Error(seriesFiltersDelete.error.message);
+
+  const assetsDelete = await supabase.from("series_assets").delete().eq("series_id", seriesId);
+  if (assetsDelete.error) throw new Error(assetsDelete.error.message);
+
+  const formatsDelete = await supabase.from("format_materials").delete().eq("series_id", seriesId);
+  if (formatsDelete.error) throw new Error(formatsDelete.error.message);
+
+  const { error } = await supabase.from("series").delete().eq("id", seriesId);
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/series");
@@ -238,7 +335,7 @@ export async function uploadSeriesDocumentsAction(formData: FormData) {
   await requireAdminUser();
   const supabase = await createClient();
   const seriesId = z.string().uuid().parse(formData.get("seriesId"));
-  const assetType = z.enum(["technical_panel", "catalog_pdf", "ambient_image"]).parse(formData.get("assetType"));
+  const assetType = z.enum(["technical_panel", "catalog_pdf", "ambient_image"]).parse(formData.get("assetType")) as DocAssetType;
   const languageCode = String(formData.get("languageCode") || "es");
   const files = formData.getAll("files").filter((x): x is File => x instanceof File);
   if (!files.length) throw new Error("Sin archivos");
@@ -246,14 +343,30 @@ export async function uploadSeriesDocumentsAction(formData: FormData) {
   const series = await supabase.from("series").select("slug").eq("id", seriesId).single();
   if (!series.data?.slug) throw new Error("Serie no encontrada");
 
+  const currentOrder = await supabase
+    .from("series_assets")
+    .select("sort_order")
+    .eq("series_id", seriesId)
+    .eq("asset_type", assetType)
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (currentOrder.error) throw new Error(currentOrder.error.message);
+  const lastOrder = Number(currentOrder.data?.sort_order || 0);
+
   const rows: Array<Record<string, unknown>> = [];
-  const prefix = Date.now();
   for (let i = 0; i < files.length; i += 1) {
     const file = files[i];
+    if (file.size === 0) {
+      throw new Error(`El archivo "${file.name || "sin nombre"}" está vacío o no se ha leído correctamente.`);
+    }
     const buffer = Buffer.from(await file.arrayBuffer());
-    const safe = file.name.toLowerCase().replace(/[^a-z0-9.\-_]+/g, "-");
+    const sortOrder = lastOrder + i + 1;
+    const ext = assetType === "ambient_image" ? inferExtension(file.name, file.type) : "pdf";
+    const normalizedFileName = buildPatternFileName(series.data.slug, assetType, sortOrder, ext);
     if (assetType === "ambient_image") {
-      const result = await uploadImageToCloudinary(buffer, `practika/series/${series.data.slug}/ambientes`, `${prefix}-${i}-${safe.replace(/\.[^/.]+$/, "")}`);
+      const publicBase = normalizedFileName.replace(/\.[^/.]+$/, "");
+      const result = await uploadImageToCloudinary(buffer, `practika/series/${series.data.slug}/${getAssetFolder(assetType)}`, publicBase);
       rows.push({
         series_id: seriesId,
         asset_type: assetType,
@@ -261,13 +374,12 @@ export async function uploadSeriesDocumentsAction(formData: FormData) {
         file_key: result.publicId,
         mime_type: file.type || null,
         language_code: languageCode,
-        title: file.name,
-        sort_order: i,
+        title: normalizedFileName,
+        sort_order: sortOrder,
       });
     } else {
-      const folder = assetType === "technical_panel" ? "paneles-tecnicos" : "catalogos";
-      const key = `series/${series.data.slug}/${folder}/${prefix}-${i}-${safe}`;
-      await uploadToR2(key, buffer, file.type || "application/octet-stream");
+      const key = `series/${series.data.slug}/${getAssetFolder(assetType)}/${normalizedFileName}`;
+      await uploadToR2(key, buffer, file.type || "application/pdf");
       rows.push({
         series_id: seriesId,
         asset_type: assetType,
@@ -275,12 +387,102 @@ export async function uploadSeriesDocumentsAction(formData: FormData) {
         file_key: key,
         mime_type: file.type || null,
         language_code: languageCode,
-        title: file.name,
-        sort_order: i,
+        title: normalizedFileName,
+        sort_order: sortOrder,
       });
     }
   }
-  const inserted = await supabase.from("series_assets").insert(rows);
+  const inserted = await supabase
+    .from("series_assets")
+    .insert(rows)
+    .select("id,asset_type,title,file_key,storage_provider,sort_order");
   if (inserted.error) throw new Error(inserted.error.message);
   revalidatePath(`/admin/series/${seriesId}`);
+
+  return { assets: inserted.data || [] };
+}
+
+export async function renameSeriesAssetAction(formData: FormData) {
+  await requireAdminUser();
+  const supabase = await createClient();
+  const parsed = renameAssetSchema.safeParse({
+    assetId: formData.get("assetId"),
+    newName: formData.get("newName"),
+  });
+  if (!parsed.success) throw new Error("Datos inválidos para renombrar");
+
+  const assetResult = await supabase
+    .from("series_assets")
+    .select("id,series_id,asset_type,storage_provider,file_key,title,mime_type,sort_order")
+    .eq("id", parsed.data.assetId)
+    .single();
+  if (assetResult.error || !assetResult.data) throw new Error("Archivo no encontrado");
+
+  const raw = parsed.data.newName.trim();
+  const ext = inferExtension(raw, assetResult.data.mime_type);
+  const base = slugify(raw.replace(/\.[^/.]+$/, ""));
+  if (!base) throw new Error("Nombre inválido");
+  const normalizedTitle = `${base}.${ext}`;
+
+  if (assetResult.data.storage_provider === "r2") {
+    const oldKey = assetResult.data.file_key;
+    const dir = oldKey.includes("/") ? oldKey.slice(0, oldKey.lastIndexOf("/")) : "";
+    const newKey = dir ? `${dir}/${normalizedTitle}` : normalizedTitle;
+    if (newKey !== oldKey) {
+      await copyObjectInR2(oldKey, newKey);
+      await deleteObjectFromR2(oldKey);
+    }
+    const updated = await supabase
+      .from("series_assets")
+      .update({ title: normalizedTitle, file_key: newKey })
+      .eq("id", assetResult.data.id)
+      .select("id,asset_type,title,file_key,storage_provider,sort_order")
+      .single();
+    if (updated.error) throw new Error(updated.error.message);
+    revalidatePath(`/admin/series/${assetResult.data.series_id}`);
+    return { asset: updated.data };
+  }
+
+  const oldPublicId = assetResult.data.file_key;
+  const dir = oldPublicId.includes("/") ? oldPublicId.slice(0, oldPublicId.lastIndexOf("/")) : "";
+  const newPublicId = dir ? `${dir}/${base}` : base;
+  if (newPublicId !== oldPublicId) {
+    await renameCloudinaryImage(oldPublicId, newPublicId);
+  }
+  const updated = await supabase
+    .from("series_assets")
+    .update({ title: normalizedTitle, file_key: newPublicId })
+    .eq("id", assetResult.data.id)
+    .select("id,asset_type,title,file_key,storage_provider,sort_order")
+    .single();
+  if (updated.error) throw new Error(updated.error.message);
+  revalidatePath(`/admin/series/${assetResult.data.series_id}`);
+  return { asset: updated.data };
+}
+
+export async function deleteSeriesAssetAction(formData: FormData) {
+  await requireAdminUser();
+  const supabase = await createClient();
+  const parsed = deleteAssetSchema.safeParse({
+    assetId: formData.get("assetId"),
+  });
+  if (!parsed.success) throw new Error("Archivo inválido");
+
+  const assetResult = await supabase
+    .from("series_assets")
+    .select("id,series_id,storage_provider,file_key")
+    .eq("id", parsed.data.assetId)
+    .single();
+  if (assetResult.error || !assetResult.data) throw new Error("Archivo no encontrado");
+
+  if (assetResult.data.storage_provider === "r2") {
+    await deleteObjectFromR2(assetResult.data.file_key);
+  } else {
+    await deleteCloudinaryImage(assetResult.data.file_key);
+  }
+
+  const deleted = await supabase.from("series_assets").delete().eq("id", parsed.data.assetId);
+  if (deleted.error) throw new Error(deleted.error.message);
+  revalidatePath(`/admin/series/${assetResult.data.series_id}`);
+  return { assetId: parsed.data.assetId };
 }

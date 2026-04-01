@@ -37,7 +37,7 @@ export default async function FormatsPage() {
                 const material = Array.isArray(row.materials) ? row.materials[0] : row.materials;
 
                 return (
-                  <tr key={row.id} className="border-t border-slate-100">
+                  <tr key={row.id} className="border-t border-slate-100 transition-colors hover:bg-slate-50/70">
                     <td className="px-4 py-3 font-semibold">{series?.name || "-"}</td>
                 <td className="px-4 py-3">{row.format_label} ({row.width_cm}x{row.height_cm} cm)</td>
                     <td className="px-4 py-3">{material?.name || "-"}</td>

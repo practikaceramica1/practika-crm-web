@@ -1,0 +1,188 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { DocumentDropzoneForm } from "./DocumentDropzoneForm";
+import { Snackbar } from "./Snackbar";
+
+type AssetType = "technical_panel" | "catalog_pdf" | "ambient_image";
+
+type AssetRow = {
+  id: string;
+  asset_type: AssetType;
+  title: string | null;
+  file_key: string;
+  storage_provider: string;
+  sort_order?: number | null;
+};
+
+export function SeriesDocumentsManager({
+  seriesId,
+  initialAssets,
+  uploadAction,
+  renameAction,
+  deleteAction,
+}: {
+  seriesId: string;
+  initialAssets: AssetRow[];
+  uploadAction: (formData: FormData) => Promise<{ assets?: AssetRow[] }>;
+  renameAction: (formData: FormData) => Promise<{ asset: AssetRow }>;
+  deleteAction: (formData: FormData) => Promise<{ assetId: string }>;
+}) {
+  const [assets, setAssets] = useState<AssetRow[]>(initialAssets);
+  const [editingName, setEditingName] = useState<Record<string, string>>({});
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+  const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  const grouped = useMemo(
+    () => ({
+      technical_panel: assets.filter((a) => a.asset_type === "technical_panel"),
+      catalog_pdf: assets.filter((a) => a.asset_type === "catalog_pdf"),
+      ambient_image: assets.filter((a) => a.asset_type === "ambient_image"),
+    }),
+    [assets]
+  );
+
+  const upsertAssets = (nextAssets: AssetRow[]) => {
+    setAssets((prev) => {
+      const map = new Map(prev.map((a) => [a.id, a]));
+      nextAssets.forEach((a) => map.set(a.id, a));
+      return Array.from(map.values()).sort((a, b) => Number(b.sort_order || 0) - Number(a.sort_order || 0));
+    });
+  };
+
+  const handleRename = async (asset: AssetRow) => {
+    const value = (editingName[asset.id] ?? asset.title ?? "").trim();
+    if (!value) return;
+    const fd = new FormData();
+    fd.set("assetId", asset.id);
+    fd.set("newName", value);
+    setPending((p) => ({ ...p, [asset.id]: true }));
+    try {
+      const result = await renameAction(fd);
+      upsertAssets([result.asset]);
+      setSnackbar({ type: "success", message: "Archivo renombrado" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo renombrar el archivo";
+      setSnackbar({ type: "error", message });
+    } finally {
+      setPending((p) => ({ ...p, [asset.id]: false }));
+    }
+  };
+
+  const handleDelete = async (asset: AssetRow) => {
+    const fd = new FormData();
+    fd.set("assetId", asset.id);
+    setPending((p) => ({ ...p, [asset.id]: true }));
+    try {
+      await deleteAction(fd);
+      setAssets((prev) => prev.filter((a) => a.id !== asset.id));
+      setSnackbar({ type: "success", message: "Archivo eliminado" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo eliminar el archivo";
+      setSnackbar({ type: "error", message });
+    } finally {
+      setPending((p) => ({ ...p, [asset.id]: false }));
+    }
+  };
+
+  return (
+    <>
+      <section className="grid gap-4 xl:grid-cols-2">
+        <article className="card p-5">
+          <h2 className="text-lg font-semibold">Subidas directas</h2>
+          <p className="mt-1 text-sm text-slate-500">Nombres automáticos: serie + sección + numeración.</p>
+          <div className="mt-4 grid gap-3">
+            <DocumentDropzoneForm
+              title="Panel técnico"
+              type="technical_panel"
+              seriesId={seriesId}
+              accept=".pdf"
+              action={uploadAction}
+              onUploaded={(newAssets) => {
+                upsertAssets(newAssets);
+                setSnackbar({ type: "success", message: "Panel técnico subido" });
+              }}
+            />
+            <DocumentDropzoneForm
+              title="PDF serie / catálogo"
+              type="catalog_pdf"
+              seriesId={seriesId}
+              accept=".pdf"
+              action={uploadAction}
+              onUploaded={(newAssets) => {
+                upsertAssets(newAssets);
+                setSnackbar({ type: "success", message: "Catálogo subido" });
+              }}
+            />
+            <DocumentDropzoneForm
+              title="Ambientes"
+              type="ambient_image"
+              seriesId={seriesId}
+              accept="image/*"
+              action={uploadAction}
+              onUploaded={(newAssets) => {
+                upsertAssets(newAssets);
+                setSnackbar({ type: "success", message: "Ambientes subidos" });
+              }}
+            />
+          </div>
+        </article>
+        <article className="card p-5">
+          <h2 className="text-lg font-semibold">Documentos cargados</h2>
+          <div className="mt-3 space-y-3 text-sm">
+            {(["technical_panel", "catalog_pdf", "ambient_image"] as AssetType[]).map((type) => (
+              <div key={type} className="rounded-lg border border-slate-200 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{type}</p>
+                <div className="mt-2 space-y-2">
+                  {grouped[type].map((asset) => (
+                    <div key={asset.id} className="rounded-md border border-slate-200 bg-slate-50 p-2">
+                      <div className="grid gap-2 md:grid-cols-[1fr_auto_auto]">
+                        <input
+                          className="input"
+                          value={editingName[asset.id] ?? asset.title ?? ""}
+                          onChange={(e) => setEditingName((prev) => ({ ...prev, [asset.id]: e.target.value }))}
+                          disabled={pending[asset.id]}
+                        />
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          disabled={
+                            pending[asset.id] ||
+                            (editingName[asset.id] ?? asset.title ?? "").trim().length === 0 ||
+                            (editingName[asset.id] ?? asset.title ?? "").trim() === (asset.title ?? "").trim()
+                          }
+                          onClick={() => {
+                            const nextName = (editingName[asset.id] ?? asset.title ?? "").trim();
+                            const ok = window.confirm(`¿Renombrar archivo a "${nextName}"?`);
+                            if (!ok) return;
+                            void handleRename(asset);
+                          }}
+                        >
+                          Renombrar
+                        </button>
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 transition-all duration-150 hover:-translate-y-px hover:bg-red-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                          disabled={pending[asset.id]}
+                          onClick={() => {
+                            const ok = window.confirm(`¿Eliminar archivo "${asset.title || asset.file_key}"?`);
+                            if (!ok) return;
+                            void handleDelete(asset);
+                          }}
+                        >
+                          Borrar
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {grouped[type].length === 0 ? <p className="text-slate-500">Sin documentos.</p> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
+      <Snackbar value={snackbar} onClose={() => setSnackbar(null)} />
+    </>
+  );
+}

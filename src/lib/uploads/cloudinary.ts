@@ -1,6 +1,6 @@
 import { v2 as cloudinary } from "cloudinary";
 
-export async function uploadImageToCloudinary(buffer: Buffer, folder: string, publicId: string) {
+function configureCloudinary() {
   const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
   const apiKey = process.env.CLOUDINARY_API_KEY;
   const apiSecret = process.env.CLOUDINARY_API_SECRET;
@@ -12,6 +12,10 @@ export async function uploadImageToCloudinary(buffer: Buffer, folder: string, pu
     api_secret: apiSecret,
     secure: true,
   });
+}
+
+export async function uploadImageToCloudinary(buffer: Buffer, folder: string, publicId: string) {
+  configureCloudinary();
 
   return new Promise<{ publicId: string }>((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
@@ -23,4 +27,14 @@ export async function uploadImageToCloudinary(buffer: Buffer, folder: string, pu
     );
     stream.end(buffer);
   });
+}
+
+export async function renameCloudinaryImage(oldPublicId: string, newPublicId: string) {
+  configureCloudinary();
+  await cloudinary.uploader.rename(oldPublicId, newPublicId, { overwrite: true, invalidate: true, resource_type: "image" });
+}
+
+export async function deleteCloudinaryImage(publicId: string) {
+  configureCloudinary();
+  await cloudinary.uploader.destroy(publicId, { resource_type: "image", invalidate: true });
 }

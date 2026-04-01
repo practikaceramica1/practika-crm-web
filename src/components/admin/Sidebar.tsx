@@ -2,10 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, FolderKanban, Filter, Ruler } from "lucide-react";
+import { FolderKanban, Filter, Ruler } from "lucide-react";
 
 const links = [
-  { href: "/admin", label: "Dashboard", hint: "Resumen", icon: LayoutDashboard },
   { href: "/admin/series", label: "Series", hint: "Constructor", icon: FolderKanban },
   { href: "/admin/formats", label: "Formatos", hint: "Global", icon: Ruler },
   { href: "/admin/filters", label: "Filtros", hint: "Catálogo", icon: Filter },
@@ -22,7 +21,7 @@ export function Sidebar() {
       </div>
       <nav className="mt-4 space-y-1.5">
         {links.map((link) => {
-          const active = pathname === link.href || (link.href !== "/admin" && pathname.startsWith(link.href));
+          const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
           const Icon = link.icon;
           return (
             <Link

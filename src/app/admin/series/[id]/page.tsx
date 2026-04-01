@@ -5,11 +5,15 @@ import { createClient } from "@/lib/supabase/server";
 import { SetupRequired } from "@/components/admin/SetupRequired";
 import { isSchemaNotReadyError } from "@/lib/supabase/error-handling";
 import { MultiFilterPicker } from "@/components/admin/MultiFilterPicker";
-import { DocumentDropzoneForm } from "@/components/admin/DocumentDropzoneForm";
 import { ColorBulkCreateCard } from "@/components/admin/ColorBulkCreateCard";
+import { FormPendingSection } from "@/components/admin/FormPendingSection";
+import { SeriesDocumentsManager } from "@/components/admin/SeriesDocumentsManager";
+import { SubmitButton } from "@/components/admin/SubmitButton";
 import {
   addColorsBulkAction,
   addFormatMaterialAction,
+  deleteSeriesAssetAction,
+  renameSeriesAssetAction,
   setColorFiltersAction,
   setFormatFiltersAction,
   setSeriesFiltersAction,
@@ -34,8 +38,13 @@ function parseFormatForSort(label: string): [number, number] {
 
 function tabClass(active: boolean) {
   return active
-    ? "inline-flex items-center gap-1.5 rounded-lg bg-[#1a1f3d] px-3 py-1.5 text-sm font-semibold text-white"
-    : "inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700";
+    ? "inline-flex items-center gap-1.5 rounded-lg bg-[#1a1f3d] px-3 py-1.5 text-sm font-semibold text-white transition-all duration-150 hover:-translate-y-px active:scale-[0.98]"
+    : "inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 transition-all duration-150 hover:-translate-y-px hover:bg-slate-50 active:scale-[0.98]";
+}
+
+function isTransientFetchError(error: { message?: string } | null) {
+  const msg = String(error?.message || "").toLowerCase();
+  return msg.includes("fetch failed") || msg.includes("network");
 }
 
 export default async function SeriesDetailPage({ params, searchParams }: Props) {
@@ -74,7 +83,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
     needsAssets
       ? supabase
           .from("series_assets")
-          .select("id,asset_type,title,file_key,storage_provider")
+          .select("id,asset_type,title,file_key,storage_provider,sort_order")
           .eq("series_id", id)
           .order("created_at", { ascending: false })
       : Promise.resolve({ data: [], error: null }),
@@ -106,6 +115,18 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
           .order("created_at", { ascending: true })
       : { data: [], error: null };
 
+  let assetsRows = assets || [];
+  let assetsQueryError = assetsError;
+  if (needsAssets && isTransientFetchError(assetsError)) {
+    const retryAssets = await supabase
+      .from("series_assets")
+      .select("id,asset_type,title,file_key,storage_provider,sort_order")
+      .eq("series_id", id)
+      .order("created_at", { ascending: false });
+    assetsRows = retryAssets.data || [];
+    assetsQueryError = retryAssets.error;
+  }
+
   if (isSchemaNotReadyError(seriesError)) {
     return <SetupRequired missing="public.series" migration="supabase/migrations/20260331_0001_crm_init.sql" />;
   }
@@ -124,7 +145,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
   if (materialsError) throw new Error(materialsError.message);
   if (formatsError) throw new Error(formatsError.message);
   if (colorsError) throw new Error(colorsError.message);
-  if (assetsError) throw new Error(assetsError.message);
+  if (assetsQueryError) throw new Error(assetsQueryError.message);
   if (filterOptionsError) throw new Error(filterOptionsError.message);
   if (seriesFiltersError) throw new Error(seriesFiltersError.message);
   if (formatFiltersError) throw new Error(formatFiltersError.message);
@@ -222,33 +243,20 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
       </section>
 
       {view === "documents" ? (
-        <section className="grid gap-4 xl:grid-cols-2">
-          <article className="card p-5">
-            <h2 className="text-lg font-semibold">Subidas directas</h2>
-            <p className="mt-1 text-sm text-slate-500">Sin URL manual. Subida directa a R2/Cloudinary.</p>
-            <div className="mt-4 grid gap-3">
-              <DocumentDropzoneForm title="Panel técnico" type="technical_panel" seriesId={series.id} accept=".pdf" action={uploadSeriesDocumentsAction} />
-              <DocumentDropzoneForm title="PDF serie / catálogo" type="catalog_pdf" seriesId={series.id} accept=".pdf" action={uploadSeriesDocumentsAction} />
-              <DocumentDropzoneForm title="Ambientes" type="ambient_image" seriesId={series.id} accept="image/*" action={uploadSeriesDocumentsAction} />
-            </div>
-          </article>
-          <article className="card p-5">
-            <h2 className="text-lg font-semibold">Documentos cargados</h2>
-            <div className="mt-3 space-y-3 text-sm">
-              {["technical_panel", "catalog_pdf", "ambient_image"].map((type) => (
-                <div key={type} className="rounded-lg border border-slate-200 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{type}</p>
-                  <ul className="mt-2 space-y-1">
-                    {(assets || []).filter((a) => a.asset_type === type).map((a) => (
-                      <li key={a.id} className="text-slate-700">{a.title || a.file_key}</li>
-                    ))}
-                    {(assets || []).filter((a) => a.asset_type === type).length === 0 ? <li className="text-slate-500">Sin documentos.</li> : null}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </article>
-        </section>
+        <SeriesDocumentsManager
+          seriesId={series.id}
+          initialAssets={assetsRows as Array<{
+            id: string;
+            asset_type: "technical_panel" | "catalog_pdf" | "ambient_image";
+            title: string | null;
+            file_key: string;
+            storage_provider: string;
+            sort_order?: number | null;
+          }>}
+          uploadAction={uploadSeriesDocumentsAction}
+          renameAction={renameSeriesAssetAction}
+          deleteAction={deleteSeriesAssetAction}
+        />
       ) : null}
 
       {view === "formats" ? (
@@ -256,15 +264,17 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
           <article className="card p-5">
             <h2 className="text-lg font-semibold">Crear formato + material</h2>
             <form action={addFormatMaterialAction} className="mt-3 grid gap-2 md:grid-cols-5">
-              <input type="hidden" name="seriesId" value={series.id} />
-              <input className="input" name="widthCm" type="number" step="0.01" placeholder="Ancho" required />
-              <input className="input" name="heightCm" type="number" step="0.01" placeholder="Alto" required />
-              <select className="input" name="materialLabel" required>
-                <option value="">Material</option>
-                {materialValues.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-              </select>
-              <div className="input bg-slate-50 text-xs text-slate-500">Producción</div>
-              <button className="btn-primary">Crear</button>
+              <FormPendingSection className="contents">
+                <input type="hidden" name="seriesId" value={series.id} />
+                <input className="input" name="widthCm" type="number" step="0.01" placeholder="Ancho" required />
+                <input className="input" name="heightCm" type="number" step="0.01" placeholder="Alto" required />
+                <select className="input" name="materialLabel" required>
+                  <option value="">Material</option>
+                  {materialValues.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+                <div className="input bg-slate-50 text-xs text-slate-500">Producción</div>
+                <SubmitButton pendingText="Creando formato...">Crear</SubmitButton>
+              </FormPendingSection>
             </form>
           </article>
           <article className="card p-5">
@@ -293,6 +303,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                 hiddenIdName="seriesId"
                 hiddenIdValue={series.id}
                 saveAction={setSeriesFiltersAction}
+                confirmMessage="¿Guardar cambios en los filtros de la serie?"
               />
             </div>
           </article>
@@ -329,6 +340,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                         hiddenIdName="formatMaterialId"
                         hiddenIdValue={f.id}
                         saveAction={setFormatFiltersAction}
+                        confirmMessage="¿Guardar cambios en los filtros del formato/material?"
                       />
                     </div>
                   </article>
@@ -378,6 +390,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                           hiddenIdValue={c.id}
                           saveAction={setColorFiltersAction}
                           saveButton="Guardar filtros color"
+                          confirmMessage="¿Guardar cambios en los filtros del color?"
                         />
                       </div>
                     </article>

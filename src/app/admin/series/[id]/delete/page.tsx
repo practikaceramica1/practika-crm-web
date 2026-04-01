@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { deleteSeriesAction } from "../../actions";
+import { FormPendingSection } from "@/components/admin/FormPendingSection";
+import { SubmitButton } from "@/components/admin/SubmitButton";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -25,13 +27,19 @@ export default async function DeleteSeriesPage({ params }: Props) {
         </p>
 
         <form action={deleteSeriesAction} className="mt-5 flex items-center gap-3">
-          <input type="hidden" name="seriesId" value={series.id} />
-          <button className="inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">
-            Sí, eliminar serie
-          </button>
-          <Link href={`/admin/series/${series.id}`} className="btn-secondary">
-            Cancelar
-          </Link>
+          <FormPendingSection className="flex items-center gap-3">
+            <input type="hidden" name="seriesId" value={series.id} />
+            <SubmitButton
+              className="inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-all duration-150 ease-out hover:-translate-y-px hover:bg-red-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+              pendingText="Eliminando..."
+              confirmMessage="¿Seguro que quieres eliminar esta serie y todo su contenido?"
+            >
+              Sí, eliminar serie
+            </SubmitButton>
+            <Link href={`/admin/series/${series.id}`} className="btn-secondary">
+              Cancelar
+            </Link>
+          </FormPendingSection>
         </form>
       </section>
     </main>

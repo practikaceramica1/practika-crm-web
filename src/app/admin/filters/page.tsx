@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
+import { FormPendingSection } from "@/components/admin/FormPendingSection";
 import { SetupRequired } from "@/components/admin/SetupRequired";
 import { isSchemaNotReadyError } from "@/lib/supabase/error-handling";
+import { SubmitButton } from "@/components/admin/SubmitButton";
 import { createFilterGroupAction, createFilterOptionAction } from "./actions";
 
 export default async function FiltersPage() {
@@ -31,22 +33,26 @@ export default async function FiltersPage() {
         <article className="card p-5">
           <h2 className="text-lg font-semibold">Nuevo grupo</h2>
           <form action={createFilterGroupAction} className="mt-3 space-y-2">
-            <input name="key" className="input" placeholder="materials" required />
-            <input name="name" className="input" placeholder="Material" required />
-            <input name="sortOrder" className="input" type="number" defaultValue={0} />
-            <button className="btn-primary">Guardar grupo</button>
+            <FormPendingSection className="space-y-2">
+              <input name="key" className="input" placeholder="materials" required />
+              <input name="name" className="input" placeholder="Material" required />
+              <input name="sortOrder" className="input" type="number" defaultValue={0} />
+              <SubmitButton pendingText="Guardando grupo...">Guardar grupo</SubmitButton>
+            </FormPendingSection>
           </form>
         </article>
         <article className="card p-5">
           <h2 className="text-lg font-semibold">Nueva opción</h2>
           <form action={createFilterOptionAction} className="mt-3 space-y-2">
-            <select name="groupId" className="input" required>
-              <option value="">Selecciona grupo</option>
-              {visibleGroups.map((g) => <option key={g.id} value={g.id}>{g.name} ({g.key})</option>)}
-            </select>
-            <input name="label" className="input" placeholder="Porcelánico" required />
-            <input name="sortOrder" className="input" type="number" defaultValue={0} />
-            <button className="btn-primary">Guardar opción</button>
+            <FormPendingSection className="space-y-2">
+              <select name="groupId" className="input" required>
+                <option value="">Selecciona grupo</option>
+                {visibleGroups.map((g) => <option key={g.id} value={g.id}>{g.name} ({g.key})</option>)}
+              </select>
+              <input name="label" className="input" placeholder="Porcelánico" required />
+              <input name="sortOrder" className="input" type="number" defaultValue={0} />
+              <SubmitButton pendingText="Guardando opción...">Guardar opción</SubmitButton>
+            </FormPendingSection>
           </form>
         </article>
       </section>

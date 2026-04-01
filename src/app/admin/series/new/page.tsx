@@ -1,4 +1,6 @@
 import { createSeriesAction } from "../actions";
+import { FormPendingSection } from "@/components/admin/FormPendingSection";
+import { SubmitButton } from "@/components/admin/SubmitButton";
 
 export default function NewSeriesPage() {
   return (
@@ -8,9 +10,13 @@ export default function NewSeriesPage() {
         <p className="mt-1 text-sm text-slate-500">Solo nombre. El resto se construye por vistas en el detalle.</p>
       </section>
       <form action={createSeriesAction} className="card p-5">
-        <label className="label">Nombre</label>
-        <input name="name" className="input" placeholder="Kamen" required />
-        <button className="btn-primary mt-4">Crear serie</button>
+        <FormPendingSection>
+          <label className="label">Nombre</label>
+          <input name="name" className="input" placeholder="Kamen" required />
+          <SubmitButton className="btn-primary mt-4" pendingText="Creando serie...">
+            Crear serie
+          </SubmitButton>
+        </FormPendingSection>
       </form>
     </main>
   );

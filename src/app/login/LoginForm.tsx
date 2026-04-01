@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginForm() {
@@ -33,15 +34,22 @@ export default function LoginForm() {
     <form onSubmit={onSubmit} className="space-y-4">
       <div>
         <label className="label">Email</label>
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="input" required />
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="input" required disabled={loading} />
       </div>
       <div>
         <label className="label">Contraseña</label>
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="input" required />
+        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="input" required disabled={loading} />
       </div>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      <button className="btn-primary w-full" disabled={loading}>
-        {loading ? "Entrando..." : "Entrar"}
+      <button className="btn-primary w-full" disabled={loading || !email || !password} aria-busy={loading}>
+        {loading ? (
+          <span className="inline-flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Entrando...
+          </span>
+        ) : (
+          "Entrar"
+        )}
       </button>
     </form>
   );

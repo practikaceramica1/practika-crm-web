@@ -22,6 +22,23 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
+@layer base {
+  button,
+  summary,
+  [role="button"],
+  a[href] {
+    @apply transition-all duration-150 ease-out;
+  }
+
+  a[href]:hover {
+    @apply opacity-90;
+  }
+
+  summary:hover {
+    @apply bg-slate-50;
+  }
+}
+
 @layer components {
   .card {
     @apply rounded-2xl border bg-white shadow-sm;
@@ -39,16 +56,33 @@ body {
   }
 
   .btn-primary {
-    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition;
+    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition-all duration-150 ease-out active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60;
     background-color: var(--primary);
   }
 
   .btn-primary:hover {
     background-color: #10162e;
+    transform: translateY(-1px);
+  }
+
+  .btn-primary:focus-visible {
+    @apply ring-2 ring-indigo-300 ring-offset-2 outline-none;
+  }
+
+  .btn-primary[aria-busy="true"] {
+    @apply animate-pulse;
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50;
+    @apply inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-all duration-150 ease-out hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .btn-secondary:hover {
+    transform: translateY(-1px);
+  }
+
+  .btn-secondary:focus-visible {
+    @apply ring-2 ring-indigo-200 ring-offset-2 outline-none;
   }
 
   .badge-draft {
