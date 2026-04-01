@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f4f6fb;
+  --foreground: #182033;
+  --primary: #1a1f3d;
+  --primary-soft: #e9edff;
+  --accent: #f59e0b;
+  --border: #e2e8f5;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border bg-white shadow-sm;
+    border-color: var(--border);
+  }
+
+  .input {
+    @apply w-full rounded-lg border px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-indigo-200;
+    border-color: #cfd8e9;
+    background: #fff;
+  }
+
+  .label {
+    @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-600;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white transition;
+    background-color: var(--primary);
+  }
+
+  .btn-primary:hover {
+    background-color: #10162e;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50;
+  }
+
+  .badge-draft {
+    @apply rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700;
+  }
+
+  .badge-published {
+    @apply rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700;
+  }
+}

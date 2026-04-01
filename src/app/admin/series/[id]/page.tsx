@@ -1,0 +1,368 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { FileText, Filter, Layers3, Palette } from "lucide-react";
+import { createClient } from "@/lib/supabase/server";
+import { SetupRequired } from "@/components/admin/SetupRequired";
+import { isSchemaNotReadyError } from "@/lib/supabase/error-handling";
+import { MultiFilterPicker } from "@/components/admin/MultiFilterPicker";
+import { DocumentDropzoneForm } from "@/components/admin/DocumentDropzoneForm";
+import { ColorBulkCreateCard } from "@/components/admin/ColorBulkCreateCard";
+import {
+  addColorsBulkAction,
+  addFormatMaterialAction,
+  setColorFiltersAction,
+  setFormatFiltersAction,
+  setSeriesFiltersAction,
+  uploadSeriesDocumentsAction,
+} from "../actions";
+
+type Props = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+function parseFormatForSort(label: string): [number, number] {
+  const cleaned = label.replace(",", ".").toLowerCase();
+  const [w, h] = cleaned.split("x");
+  return [Number(w) || 0, Number(h) || 0];
+}
+
+function tabClass(active: boolean) {
+  return active
+    ? "inline-flex items-center gap-1.5 rounded-lg bg-[#1a1f3d] px-3 py-1.5 text-sm font-semibold text-white"
+    : "inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700";
+}
+
+export default async function SeriesDetailPage({ params, searchParams }: Props) {
+  const { id } = await params;
+  const sp = await searchParams;
+  const view = typeof sp.view === "string" ? sp.view : "documents";
+  const supabase = await createClient();
+
+  const needsFormats = view === "formats" || view === "filters" || view === "colors";
+  const needsMaterials = view === "formats";
+  const needsAssets = view === "documents";
+  const needsFilters = view === "filters" || view === "colors";
+  const needsColors = view === "colors";
+
+  const [
+    { data: series, error: seriesError },
+    { data: materials, error: materialsError },
+    { data: formats, error: formatsError },
+    { data: assets, error: assetsError },
+    { data: filterOptions, error: filterOptionsError },
+    { data: seriesFilters, error: seriesFiltersError },
+    { data: formatFilters, error: formatFiltersError },
+    { data: colorFilters, error: colorFiltersError },
+  ] = await Promise.all([
+    supabase.from("series").select("*").eq("id", id).single(),
+    needsMaterials
+      ? supabase.from("materials").select("id,name").order("name")
+      : Promise.resolve({ data: [], error: null }),
+    needsFormats
+      ? supabase
+          .from("format_materials")
+          .select("id,format_label,width_cm,height_cm,materials(name)")
+          .eq("series_id", id)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
+    needsAssets
+      ? supabase
+          .from("series_assets")
+          .select("id,asset_type,title,file_key,storage_provider")
+          .eq("series_id", id)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
+    needsFilters
+      ? supabase
+          .from("filter_options")
+          .select("id,label,filter_group_id,filter_groups(key,name)")
+          .eq("is_active", true)
+          .order("label")
+      : Promise.resolve({ data: [], error: null }),
+    needsFilters
+      ? supabase.from("series_filter_options").select("filter_option_id").eq("series_id", id)
+      : Promise.resolve({ data: [], error: null }),
+    needsFilters
+      ? supabase.from("format_material_filter_options").select("format_material_id,filter_option_id")
+      : Promise.resolve({ data: [], error: null }),
+    needsColors
+      ? supabase.from("article_color_filter_options").select("article_color_id,filter_option_id")
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  const formatIds = (formats || []).map((f) => f.id);
+  const { data: colors, error: colorsError } =
+    needsColors && formatIds.length > 0
+      ? await supabase
+          .from("article_colors")
+          .select("id,color_name,variant_type,format_material_id")
+          .in("format_material_id", formatIds)
+          .order("created_at", { ascending: true })
+      : { data: [], error: null };
+
+  if (isSchemaNotReadyError(seriesError)) {
+    return <SetupRequired missing="public.series" migration="supabase/migrations/20260331_0001_crm_init.sql" />;
+  }
+  if (
+    isSchemaNotReadyError(formatFiltersError) ||
+    isSchemaNotReadyError(colorFiltersError)
+  ) {
+    return (
+      <SetupRequired
+        missing="public.format_material_filter_options / public.article_color_filter_options"
+        migration="supabase/migrations/20260331_0002_filter_hierarchy.sql"
+      />
+    );
+  }
+  if (seriesError && seriesError.code !== "PGRST116") throw new Error(seriesError.message);
+  if (materialsError) throw new Error(materialsError.message);
+  if (formatsError) throw new Error(formatsError.message);
+  if (colorsError) throw new Error(colorsError.message);
+  if (assetsError) throw new Error(assetsError.message);
+  if (filterOptionsError) throw new Error(filterOptionsError.message);
+  if (seriesFiltersError) throw new Error(seriesFiltersError.message);
+  if (formatFiltersError) throw new Error(formatFiltersError.message);
+  if (colorFiltersError) throw new Error(colorFiltersError.message);
+  if (!series) notFound();
+
+  const groupedFilters = Object.values(
+    (filterOptions || [])
+      .filter((x) => x.filter_groups?.key !== "formats")
+      .reduce<Record<string, { key: string; name: string; options: { id: string; label: string }[] }>>((acc, opt) => {
+        const key = opt.filter_groups?.key || "otros";
+        if (!acc[key]) acc[key] = { key, name: opt.filter_groups?.name || "Otros", options: [] };
+        acc[key].options.push({ id: opt.id, label: opt.label });
+        return acc;
+      }, {})
+  );
+
+  const materialFilterOptions = groupedFilters.find((g) => g.key === "materials")?.options || [];
+  const materialValues = [
+    ...(materials || []).map((m) => ({ value: m.name, label: m.name })),
+    ...materialFilterOptions
+      .filter((m) => !(materials || []).some((x) => x.name.toLowerCase() === m.label.toLowerCase()))
+      .map((m) => ({ value: m.label, label: m.label })),
+  ];
+
+  const colorsByFormat = (colors || []).reduce<Record<string, typeof colors>>((acc, c) => {
+    if (!acc[c.format_material_id]) acc[c.format_material_id] = [];
+    acc[c.format_material_id].push(c);
+    return acc;
+  }, {});
+  const sortedFormats = [...(formats || [])].sort((a, b) => {
+    const [aw, ah] = parseFormatForSort(a.format_label);
+    const [bw, bh] = parseFormatForSort(b.format_label);
+    if (aw !== bw) return aw - bw;
+    return ah - bh;
+  });
+  Object.keys(colorsByFormat).forEach((formatId) => {
+    colorsByFormat[formatId].sort((a, b) => a.color_name.localeCompare(b.color_name, "es"));
+  });
+  const seriesFilterIds = (seriesFilters || []).map((x) => x.filter_option_id);
+  const formatFilterIdsByFormat = (formatFilters || []).reduce<Record<string, string[]>>((acc, row) => {
+    if (!acc[row.format_material_id]) acc[row.format_material_id] = [];
+    acc[row.format_material_id].push(row.filter_option_id);
+    return acc;
+  }, {});
+  const colorFilterIdsByColor = (colorFilters || []).reduce<Record<string, string[]>>((acc, row) => {
+    if (!acc[row.article_color_id]) acc[row.article_color_id] = [];
+    acc[row.article_color_id].push(row.filter_option_id);
+    return acc;
+  }, {});
+
+  return (
+    <main className="space-y-6">
+      <section className="card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-900">{series.name}</h1>
+            <p className="mt-1 text-sm text-slate-500">Vista modular por pasos · {series.slug}</p>
+          </div>
+          <Link
+            href={`/admin/series/${series.id}/delete`}
+            className="inline-flex items-center justify-center rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+          >
+            Eliminar serie
+          </Link>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link href={`/admin/series/${series.id}?view=documents`} className={tabClass(view === "documents")}><FileText className="h-4 w-4" />Documentos</Link>
+          <Link href={`/admin/series/${series.id}?view=formats`} className={tabClass(view === "formats")}><Layers3 className="h-4 w-4" />Formatos y materiales</Link>
+          <Link href={`/admin/series/${series.id}?view=colors`} className={tabClass(view === "colors")}><Palette className="h-4 w-4" />Artículos / colores</Link>
+          <Link href={`/admin/series/${series.id}?view=filters`} className={tabClass(view === "filters")}><Filter className="h-4 w-4" />Filtros</Link>
+        </div>
+      </section>
+
+      {view === "documents" ? (
+        <section className="grid gap-4 xl:grid-cols-2">
+          <article className="card p-5">
+            <h2 className="text-lg font-semibold">Subidas directas</h2>
+            <p className="mt-1 text-sm text-slate-500">Sin URL manual. Subida directa a R2/Cloudinary.</p>
+            <div className="mt-4 grid gap-3">
+              <DocumentDropzoneForm title="Panel técnico" type="technical_panel" seriesId={series.id} accept=".pdf" action={uploadSeriesDocumentsAction} />
+              <DocumentDropzoneForm title="PDF serie / catálogo" type="catalog_pdf" seriesId={series.id} accept=".pdf" action={uploadSeriesDocumentsAction} />
+              <DocumentDropzoneForm title="Ambientes" type="ambient_image" seriesId={series.id} accept="image/*" action={uploadSeriesDocumentsAction} />
+            </div>
+          </article>
+          <article className="card p-5">
+            <h2 className="text-lg font-semibold">Documentos cargados</h2>
+            <div className="mt-3 space-y-3 text-sm">
+              {["technical_panel", "catalog_pdf", "ambient_image"].map((type) => (
+                <div key={type} className="rounded-lg border border-slate-200 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{type}</p>
+                  <ul className="mt-2 space-y-1">
+                    {(assets || []).filter((a) => a.asset_type === type).map((a) => (
+                      <li key={a.id} className="text-slate-700">{a.title || a.file_key}</li>
+                    ))}
+                    {(assets || []).filter((a) => a.asset_type === type).length === 0 ? <li className="text-slate-500">Sin documentos.</li> : null}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {view === "formats" ? (
+        <section className="space-y-4">
+          <article className="card p-5">
+            <h2 className="text-lg font-semibold">Crear formato + material</h2>
+            <form action={addFormatMaterialAction} className="mt-3 grid gap-2 md:grid-cols-5">
+              <input type="hidden" name="seriesId" value={series.id} />
+              <input className="input" name="widthCm" type="number" step="0.01" placeholder="Ancho" required />
+              <input className="input" name="heightCm" type="number" step="0.01" placeholder="Alto" required />
+              <select className="input" name="materialLabel" required>
+                <option value="">Material</option>
+                {materialValues.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+              <div className="input bg-slate-50 text-xs text-slate-500">Producción</div>
+              <button className="btn-primary">Crear</button>
+            </form>
+          </article>
+          <article className="card p-5">
+            <h2 className="text-lg font-semibold">Formatos existentes</h2>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {sortedFormats.map((f) => (
+                <div key={f.id} className="rounded-lg border border-slate-200 p-3">
+                  <p className="font-semibold">{f.format_label} · {f.materials?.name}</p>
+                </div>
+              ))}
+              {sortedFormats.length === 0 ? <p className="text-sm text-slate-500">No hay formatos creados.</p> : null}
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {view === "filters" ? (
+        <section className="grid gap-4 xl:grid-cols-2">
+          <article className="card p-5">
+            <h2 className="text-lg font-semibold">Filtros de serie</h2>
+            <p className="mt-1 text-sm text-slate-500">Se heredan a formato/material y color por defecto.</p>
+            <div className="mt-3">
+              <MultiFilterPicker
+                groups={groupedFilters}
+                initialSelectedIds={seriesFilterIds}
+                hiddenIdName="seriesId"
+                hiddenIdValue={series.id}
+                saveAction={setSeriesFiltersAction}
+              />
+            </div>
+          </article>
+          <article className="card p-5">
+            <h2 className="text-lg font-semibold">Resumen por formato</h2>
+            <div className="mt-3 space-y-2 text-sm">
+              {sortedFormats.map((f) => (
+                <div key={f.id} className="rounded-lg border border-slate-200 p-3">
+                  <p className="font-semibold">{f.format_label} · {f.materials?.name}</p>
+                  <p className="text-xs text-slate-500">{(formatFilterIdsByFormat[f.id] || seriesFilterIds).length} filtros activos</p>
+                </div>
+              ))}
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {view === "colors" ? (
+        <section className="space-y-3">
+          {sortedFormats.map((f) => (
+            <details key={f.id} className="card" open>
+              <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3">
+                <p className="font-semibold">{f.format_label} · {f.materials?.name}</p>
+                <span className="text-xs text-slate-500">{(colorsByFormat[f.id] || []).length} colores</span>
+              </summary>
+              <div className="border-t border-slate-200 p-4">
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <article className="rounded-lg border border-slate-200 p-3">
+                    <p className="text-sm font-semibold">Filtros de formato/material</p>
+                    <div className="mt-2">
+                      <MultiFilterPicker
+                        groups={groupedFilters}
+                        initialSelectedIds={formatFilterIdsByFormat[f.id] || seriesFilterIds}
+                        hiddenIdName="formatMaterialId"
+                        hiddenIdValue={f.id}
+                        saveAction={setFormatFiltersAction}
+                      />
+                    </div>
+                  </article>
+                </div>
+                <div className="mt-4">
+                  <div className="grid gap-3 xl:grid-cols-2">
+                    <ColorBulkCreateCard
+                      title="Regular"
+                      variantType="regular"
+                      seriesId={series.id}
+                      formatMaterialId={f.id}
+                      action={addColorsBulkAction}
+                    />
+                    <ColorBulkCreateCard
+                      title="Decor"
+                      variantType="decor"
+                      seriesId={series.id}
+                      formatMaterialId={f.id}
+                      action={addColorsBulkAction}
+                    />
+                    <ColorBulkCreateCard
+                      title="Relieve"
+                      variantType="relieve"
+                      seriesId={series.id}
+                      formatMaterialId={f.id}
+                      action={addColorsBulkAction}
+                    />
+                    <ColorBulkCreateCard
+                      title="Antideslizante (C3)"
+                      variantType="c3"
+                      seriesId={series.id}
+                      formatMaterialId={f.id}
+                      action={addColorsBulkAction}
+                    />
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                  {(colorsByFormat[f.id] || []).map((c) => (
+                    <article key={c.id} className="rounded-lg border border-slate-200 p-3">
+                      <p className="font-semibold">{c.color_name}</p>
+                      <p className="text-xs text-slate-500">{c.variant_type === "c3" ? "Antideslizante (C3)" : c.variant_type}</p>
+                      <div className="mt-2">
+                        <MultiFilterPicker
+                          groups={groupedFilters}
+                          initialSelectedIds={colorFilterIdsByColor[c.id] || formatFilterIdsByFormat[f.id] || seriesFilterIds}
+                          hiddenIdName="articleColorId"
+                          hiddenIdValue={c.id}
+                          saveAction={setColorFiltersAction}
+                          saveButton="Guardar filtros color"
+                        />
+                      </div>
+                    </article>
+                  ))}
+                  {(colorsByFormat[f.id] || []).length === 0 ? <p className="text-sm text-slate-500">Sin colores en este formato.</p> : null}
+                </div>
+              </div>
+            </details>
+          ))}
+          {sortedFormats.length === 0 ? <section className="card p-5 text-sm text-slate-500">Primero crea formatos en la vista Formatos y materiales.</section> : null}
+        </section>
+      ) : null}
+    </main>
+  );
+}
