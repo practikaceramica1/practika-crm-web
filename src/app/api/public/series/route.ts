@@ -24,6 +24,10 @@ type ProductLike = {
   featured?: boolean;
   new?: boolean;
   createdAt?: string;
+  seriesDownloads?: {
+    technicalPanels: string[];
+    catalogPdfs: string[];
+  };
 };
 
 function normalizeKey(key: string) {
@@ -60,19 +64,53 @@ function parseFormatForSort(label: string): [number, number] {
   return [Number(w) || 0, Number(h) || 0];
 }
 
+function looksLikeR2Host(url: string) {
+  const u = url.trim().toLowerCase();
+  return u.includes(".r2.dev") || u.includes("r2.cloudflarestorage.com");
+}
+
+/** Origen público R2: cualquier URL en R2_PUBLIC_*; DOCUMENTS solo si el host parece R2. */
+function resolveR2PublicBaseUrl() {
+  const normalize = (raw: string) => {
+    const t = raw.trim().replace(/\/$/, "");
+    if (!t || t === "cloudinary") return "";
+    return t.startsWith("http://") || t.startsWith("https://") ? t : `https://${t}`;
+  };
+  for (const raw of [process.env.R2_PUBLIC_BASE_URL, process.env.NEXT_PUBLIC_R2_PUBLIC_BASE_URL]) {
+    const u = normalize(raw || "");
+    if (u) return u;
+  }
+  const docs = process.env.NEXT_PUBLIC_DOCUMENTS_BASE_URL?.trim() || "";
+  if (docs && docs !== "cloudinary" && looksLikeR2Host(docs)) return normalize(docs);
+  return "";
+}
+
+function inferAssetProvider(storageProvider: string, fileKey: string): "cloudinary" | "r2" {
+  const p = storageProvider.toLowerCase();
+  if (p === "cloudinary") return "cloudinary";
+  if (p === "r2") return "r2";
+  if (fileKey.startsWith("practika/")) return "cloudinary";
+  if (fileKey.startsWith("series/")) return "r2";
+  return "r2";
+}
+
+/** file_key en BD = clave exacta; R2 → base + / + key; Cloudinary → public_id en image/upload. */
 function getAssetPublicUrl(storageProvider: string, fileKey: string) {
   if (!fileKey) return "";
   if (fileKey.startsWith("http://") || fileKey.startsWith("https://")) return fileKey;
 
-  if (storageProvider === "cloudinary") {
+  const cleanKey = fileKey.replace(/^\/+/, "");
+  const provider = inferAssetProvider(storageProvider, cleanKey);
+
+  if (provider === "cloudinary") {
     const cloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
     if (!cloud) return "";
-    return `https://res.cloudinary.com/${cloud}/image/upload/${fileKey}`;
+    return `https://res.cloudinary.com/${cloud}/image/upload/f_auto,q_auto/${cleanKey}`;
   }
 
-  const r2Base = process.env.R2_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_R2_PUBLIC_BASE_URL;
-  if (!r2Base) return "";
-  return `${r2Base.replace(/\/$/, "")}/${fileKey.replace(/^\//, "")}`;
+  const base = resolveR2PublicBaseUrl();
+  if (!base) return "";
+  return `${base.replace(/\/$/, "")}/${cleanKey}`;
 }
 
 export async function GET() {
@@ -236,6 +274,15 @@ export async function GET() {
         .map((a) => getAssetPublicUrl(a.storage_provider, a.file_key))
         .filter(Boolean);
 
+      const technicalPanels = rowAssets
+        .filter((a) => a.asset_type === "technical_panel")
+        .map((a) => getAssetPublicUrl(a.storage_provider, a.file_key))
+        .filter(Boolean);
+      const catalogPdfs = rowAssets
+        .filter((a) => a.asset_type === "catalog_pdf")
+        .map((a) => getAssetPublicUrl(a.storage_provider, a.file_key))
+        .filter(Boolean);
+
       const seriesFilters = seriesFiltersMap.get(s.id);
       return {
         id: s.id,
@@ -260,6 +307,10 @@ export async function GET() {
         featured: Boolean(s.featured),
         new: false,
         createdAt: s.created_at || undefined,
+        seriesDownloads:
+          technicalPanels.length > 0 || catalogPdfs.length > 0
+            ? { technicalPanels, catalogPdfs }
+            : undefined,
       };
     });
 

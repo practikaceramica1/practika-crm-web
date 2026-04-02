@@ -39,6 +39,16 @@ const deleteAssetSchema = z.object({
 
 type DocAssetType = "technical_panel" | "catalog_pdf" | "ambient_image";
 
+/** En Node, entradas de FormData a veces no pasan `instanceof File`; aceptamos cualquier Blob con arrayBuffer. */
+function getFilePartsFromFormData(formData: FormData): File[] {
+  const items = formData.getAll("files");
+  return items.filter((x): x is File => {
+    if (x == null || typeof x === "string") return false;
+    const b = x as Blob;
+    return typeof b.arrayBuffer === "function" && typeof b.size === "number";
+  }) as File[];
+}
+
 function getAssetSection(assetType: DocAssetType) {
   if (assetType === "technical_panel") return "panel-tecnico";
   if (assetType === "catalog_pdf") return "catalogo";
@@ -337,7 +347,7 @@ export async function uploadSeriesDocumentsAction(formData: FormData) {
   const seriesId = z.string().uuid().parse(formData.get("seriesId"));
   const assetType = z.enum(["technical_panel", "catalog_pdf", "ambient_image"]).parse(formData.get("assetType")) as DocAssetType;
   const languageCode = String(formData.get("languageCode") || "es");
-  const files = formData.getAll("files").filter((x): x is File => x instanceof File);
+  const files = getFilePartsFromFormData(formData);
   if (!files.length) throw new Error("Sin archivos");
 
   const series = await supabase.from("series").select("slug").eq("id", seriesId).single();

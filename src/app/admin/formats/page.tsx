@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { FormatsListTable, type FormatsListRow } from "@/components/admin/FormatsListTable";
 import { SetupRequired } from "@/components/admin/SetupRequired";
 import { isSchemaNotReadyError } from "@/lib/supabase/error-handling";
 
@@ -14,6 +14,20 @@ export default async function FormatsPage() {
   }
   if (error) throw new Error(error.message);
 
+  const rows: FormatsListRow[] = (data || []).map((row) => {
+    const series = Array.isArray(row.series) ? row.series[0] : row.series;
+    const material = Array.isArray(row.materials) ? row.materials[0] : row.materials;
+    return {
+      id: row.id,
+      seriesId: series?.id ?? null,
+      seriesName: series?.name ?? "-",
+      formatLabel: `${row.format_label} (${row.width_cm}x${row.height_cm} cm)`,
+      materialName: material?.name ?? "-",
+    };
+  });
+
+  rows.sort((a, b) => a.seriesName.localeCompare(b.seriesName, "es", { sensitivity: "base" }));
+
   return (
     <main className="space-y-6">
       <section className="card p-5">
@@ -21,35 +35,7 @@ export default async function FormatsPage() {
         <p className="text-sm text-slate-500">Aquí ves todos los formatos creados en todas las series.</p>
       </section>
       <section className="card overflow-hidden">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="px-4 py-3">Serie</th>
-              <th className="px-4 py-3">Formato</th>
-              <th className="px-4 py-3">Material</th>
-              <th className="px-4 py-3 text-right">Abrir</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data?.map((row) => (
-              (() => {
-                const series = Array.isArray(row.series) ? row.series[0] : row.series;
-                const material = Array.isArray(row.materials) ? row.materials[0] : row.materials;
-
-                return (
-                  <tr key={row.id} className="border-t border-slate-100 transition-colors hover:bg-slate-50/70">
-                    <td className="px-4 py-3 font-semibold">{series?.name || "-"}</td>
-                <td className="px-4 py-3">{row.format_label} ({row.width_cm}x{row.height_cm} cm)</td>
-                    <td className="px-4 py-3">{material?.name || "-"}</td>
-                    <td className="px-4 py-3 text-right">
-                      {series?.id ? <Link href={`/admin/series/${series.id}`} className="btn-secondary">Serie</Link> : "-"}
-                    </td>
-                  </tr>
-                );
-              })()
-            ))}
-          </tbody>
-        </table>
+        <FormatsListTable rows={rows} />
       </section>
     </main>
   );
