@@ -12,11 +12,13 @@ import { SubmitButton } from "@/components/admin/SubmitButton";
 import {
   addColorsBulkAction,
   addFormatMaterialAction,
+  deleteFormatMaterialAction,
   deleteSeriesAssetAction,
   renameSeriesAssetAction,
   setColorFiltersAction,
   setFormatFiltersAction,
   setSeriesFiltersAction,
+  updateFormatMaterialAction,
   uploadSeriesDocumentsAction,
 } from "../actions";
 
@@ -279,12 +281,86 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
           </article>
           <article className="card p-5">
             <h2 className="text-lg font-semibold">Formatos existentes</h2>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-              {sortedFormats.map((f) => (
-                <div key={f.id} className="rounded-lg border border-slate-200 p-3">
-                  <p className="font-semibold">{f.format_label} · {pickRelation(f.materials)?.name}</p>
-                </div>
-              ))}
+            <p className="mt-1 text-sm text-slate-500">
+              Edita dimensiones o material, o elimina el formato. Al eliminar se borran también todos los colores de ese formato.
+            </p>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              {sortedFormats.map((f) => {
+                const matName = pickRelation(f.materials)?.name || "";
+                const hasMatOption = materialValues.some((m) => m.value === matName);
+                return (
+                  <div key={f.id} className="rounded-lg border border-slate-200 p-4 space-y-3">
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                      Actual · {f.format_label} · {matName || "—"}
+                    </p>
+                    <form action={updateFormatMaterialAction} className="space-y-2">
+                      <FormPendingSection>
+                        <input type="hidden" name="seriesId" value={series.id} />
+                        <input type="hidden" name="formatMaterialId" value={f.id} />
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <label className="block text-xs text-slate-600">
+                            Ancho (cm)
+                            <input
+                              className="input mt-1"
+                              name="widthCm"
+                              type="number"
+                              step="0.01"
+                              min="0.01"
+                              defaultValue={f.width_cm}
+                              required
+                            />
+                          </label>
+                          <label className="block text-xs text-slate-600">
+                            Alto (cm)
+                            <input
+                              className="input mt-1"
+                              name="heightCm"
+                              type="number"
+                              step="0.01"
+                              min="0.01"
+                              defaultValue={f.height_cm}
+                              required
+                            />
+                          </label>
+                        </div>
+                        <label className="block text-xs text-slate-600">
+                          Material
+                          <select className="input mt-1" name="materialLabel" required defaultValue={matName}>
+                            {!hasMatOption && matName ? (
+                              <option value={matName}>{matName}</option>
+                            ) : null}
+                            {materialValues.map((m) => (
+                              <option key={m.value} value={m.value}>
+                                {m.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <SubmitButton
+                          className="btn-secondary w-full sm:w-auto"
+                          pendingText="Guardando…"
+                          confirmMessage="¿Guardar cambios en este formato?"
+                        >
+                          Guardar cambios
+                        </SubmitButton>
+                      </FormPendingSection>
+                    </form>
+                    <form action={deleteFormatMaterialAction} className="border-t border-slate-100 pt-3">
+                      <FormPendingSection>
+                        <input type="hidden" name="seriesId" value={series.id} />
+                        <input type="hidden" name="formatMaterialId" value={f.id} />
+                        <SubmitButton
+                          className="w-full border border-red-200 bg-white text-sm font-semibold text-red-700 hover:bg-red-50 sm:w-auto"
+                          pendingText="Eliminando…"
+                          confirmMessage={`¿Eliminar el formato ${f.format_label} y todos sus colores asociados? Esta acción no se puede deshacer.`}
+                        >
+                          Eliminar formato
+                        </SubmitButton>
+                      </FormPendingSection>
+                    </form>
+                  </div>
+                );
+              })}
               {sortedFormats.length === 0 ? <p className="text-sm text-slate-500">No hay formatos creados.</p> : null}
             </div>
           </article>

@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { AdminDataTable, type AdminTableColumn } from "@/components/admin/AdminDataTable";
+import { FormPendingSection } from "@/components/admin/FormPendingSection";
+import { SubmitButton } from "@/components/admin/SubmitButton";
+import { deleteFormatMaterialAction } from "@/app/admin/series/actions";
 
 export type FormatsListRow = {
   id: string;
@@ -15,7 +18,7 @@ const columns: AdminTableColumn<FormatsListRow>[] = [
   { id: "seriesName", header: "Serie", sortable: true, field: "seriesName", initialWidth: 200, minWidth: 100 },
   { id: "formatLabel", header: "Formato", sortable: true, field: "formatLabel", initialWidth: 260, minWidth: 120 },
   { id: "materialName", header: "Material", sortable: true, field: "materialName", initialWidth: 180, minWidth: 100 },
-  { id: "actions", header: "Abrir", sortable: false, align: "right", initialWidth: 120, minWidth: 100 },
+  { id: "actions", header: "Acciones", sortable: false, align: "right", initialWidth: 200, minWidth: 160 },
 ];
 
 export function FormatsListTable({ rows }: { rows: FormatsListRow[] }) {
@@ -32,12 +35,26 @@ export function FormatsListTable({ rows }: { rows: FormatsListRow[] }) {
         if (colId === "formatLabel") return row.formatLabel;
         if (colId === "materialName") return row.materialName;
         if (colId === "actions") {
-          return row.seriesId ? (
-            <Link href={`/admin/series/${row.seriesId}`} className="btn-secondary">
-              Serie
-            </Link>
-          ) : (
-            "-"
+          if (!row.seriesId) return "-";
+          return (
+            <div className="flex flex-col items-end gap-2">
+              <Link href={`/admin/series/${row.seriesId}?view=formats`} className="btn-secondary text-xs">
+                Editar en serie
+              </Link>
+              <form action={deleteFormatMaterialAction}>
+                <FormPendingSection>
+                  <input type="hidden" name="seriesId" value={row.seriesId} />
+                  <input type="hidden" name="formatMaterialId" value={row.id} />
+                  <SubmitButton
+                    className="border border-red-200 bg-white px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
+                    pendingText="Eliminando…"
+                    confirmMessage="¿Eliminar este formato y todos sus colores asociados? No se puede deshacer."
+                  >
+                    Eliminar
+                  </SubmitButton>
+                </FormPendingSection>
+              </form>
+            </div>
           );
         }
         return null;

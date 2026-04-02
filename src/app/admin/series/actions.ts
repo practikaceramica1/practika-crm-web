@@ -222,6 +222,124 @@ export async function addFormatMaterialAction(formData: FormData) {
     );
   }
   revalidatePath(`/admin/series/${parsed.data.seriesId}`);
+  revalidatePath("/admin/formats");
+}
+
+const updateFormatSchema = z.object({
+  seriesId: z.string().uuid(),
+  formatMaterialId: z.string().uuid(),
+  widthCm: z.coerce.number().positive(),
+  heightCm: z.coerce.number().positive(),
+  materialLabel: z.string().min(2),
+});
+
+const deleteFormatSchema = z.object({
+  seriesId: z.string().uuid(),
+  formatMaterialId: z.string().uuid(),
+});
+
+export async function updateFormatMaterialAction(formData: FormData) {
+  await requireAdminUser();
+  const supabase = await createClient();
+  const parsed = updateFormatSchema.safeParse({
+    seriesId: formData.get("seriesId"),
+    formatMaterialId: formData.get("formatMaterialId"),
+    widthCm: formData.get("widthCm"),
+    heightCm: formData.get("heightCm"),
+    materialLabel: formData.get("materialLabel"),
+  });
+  if (!parsed.success) throw new Error("Datos de formato inválidos");
+
+  const { seriesId, formatMaterialId } = parsed.data;
+  const { data: existing, error: existErr } = await supabase
+    .from("format_materials")
+    .select("id")
+    .eq("id", formatMaterialId)
+    .eq("series_id", seriesId)
+    .maybeSingle();
+  if (existErr) throw new Error(existErr.message);
+  if (!existing) throw new Error("Formato no encontrado o no pertenece a esta serie");
+
+  const materialLabel = parsed.data.materialLabel.trim();
+  const materialSlug = slugify(materialLabel);
+  const { data: matExisting } = await supabase.from("materials").select("id").eq("slug", materialSlug).maybeSingle();
+  let materialId = matExisting?.id;
+  if (!materialId) {
+    const created = await supabase
+      .from("materials")
+      .insert({ slug: materialSlug, name: materialLabel, default_technical_properties: {}, is_active: true })
+      .select("id")
+      .single();
+    if (created.error) throw new Error(created.error.message);
+    materialId = created.data.id;
+  }
+
+  const width = String(parsed.data.widthCm).replace(".", ",");
+  const height = String(parsed.data.heightCm).replace(".", ",");
+  const formatLabel = `${width}x${height}`;
+
+  const { error: updErr } = await supabase
+    .from("format_materials")
+    .update({
+      material_id: materialId,
+      format_label: formatLabel,
+      width_cm: parsed.data.widthCm,
+      height_cm: parsed.data.heightCm,
+    })
+    .eq("id", formatMaterialId)
+    .eq("series_id", seriesId);
+  if (updErr) throw new Error(updErr.message);
+
+  revalidatePath(`/admin/series/${seriesId}`);
+  revalidatePath("/admin/formats");
+}
+
+export async function deleteFormatMaterialAction(formData: FormData) {
+  await requireAdminUser();
+  const supabase = await createClient();
+  const parsed = deleteFormatSchema.safeParse({
+    seriesId: formData.get("seriesId"),
+    formatMaterialId: formData.get("formatMaterialId"),
+  });
+  if (!parsed.success) throw new Error("Formato inválido");
+
+  const { seriesId, formatMaterialId } = parsed.data;
+
+  const { data: fm, error: fmErr } = await supabase
+    .from("format_materials")
+    .select("id")
+    .eq("id", formatMaterialId)
+    .eq("series_id", seriesId)
+    .maybeSingle();
+  if (fmErr) throw new Error(fmErr.message);
+  if (!fm) throw new Error("Formato no encontrado o no pertenece a esta serie");
+
+  const colorsResult = await supabase.from("article_colors").select("id").eq("format_material_id", formatMaterialId);
+  if (colorsResult.error) throw new Error(colorsResult.error.message);
+  const colorIds = (colorsResult.data || []).map((c) => c.id);
+
+  if (colorIds.length > 0) {
+    const colorFiltersDelete = await supabase
+      .from("article_color_filter_options")
+      .delete()
+      .in("article_color_id", colorIds);
+    if (colorFiltersDelete.error) throw new Error(colorFiltersDelete.error.message);
+  }
+
+  const formatFiltersDelete = await supabase
+    .from("format_material_filter_options")
+    .delete()
+    .eq("format_material_id", formatMaterialId);
+  if (formatFiltersDelete.error) throw new Error(formatFiltersDelete.error.message);
+
+  const colorsDelete = await supabase.from("article_colors").delete().eq("format_material_id", formatMaterialId);
+  if (colorsDelete.error) throw new Error(colorsDelete.error.message);
+
+  const delFmt = await supabase.from("format_materials").delete().eq("id", formatMaterialId).eq("series_id", seriesId);
+  if (delFmt.error) throw new Error(delFmt.error.message);
+
+  revalidatePath(`/admin/series/${seriesId}`);
+  revalidatePath("/admin/formats");
 }
 
 export async function addColorAction(formData: FormData) {
