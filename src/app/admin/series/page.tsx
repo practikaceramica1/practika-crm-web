@@ -8,7 +8,7 @@ export default async function SeriesPage() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("series")
-    .select("id,name,slug,updated_at")
+    .select("id,name,slug,is_new,updated_at")
     .order("name", { ascending: true });
 
   if (isSchemaNotReadyError(error)) {
@@ -20,6 +20,7 @@ export default async function SeriesPage() {
     id: r.id,
     name: r.name,
     slug: r.slug,
+    is_new: Boolean(r.is_new),
     updated_at: r.updated_at,
   }));
 

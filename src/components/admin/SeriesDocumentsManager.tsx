@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Download, ExternalLink } from "lucide-react";
 import { DocumentDropzoneForm } from "./DocumentDropzoneForm";
 import { Snackbar } from "./Snackbar";
 
@@ -13,16 +14,57 @@ type AssetRow = {
   file_key: string;
   storage_provider: string;
   sort_order?: number | null;
+  publicUrl?: string;
 };
+
+const SECTION_LABELS: Record<AssetType, string> = {
+  technical_panel: "Paneles técnicos",
+  catalog_pdf: "Catálogos PDF",
+  ambient_image: "Ambientes",
+};
+
+function buildPublicUrl(
+  storageProvider: string,
+  fileKey: string,
+  r2BaseUrl: string,
+  cloudinaryCloudName: string
+): string {
+  if (!fileKey) return "";
+  if (fileKey.startsWith("http://") || fileKey.startsWith("https://")) return fileKey;
+  const cleanKey = fileKey.replace(/^\/+/, "");
+  const p = storageProvider.toLowerCase();
+  const isCloudinary = p === "cloudinary" || (!p && cleanKey.startsWith("practika/"));
+  if (isCloudinary) {
+    if (!cloudinaryCloudName) return "";
+    return `https://res.cloudinary.com/${cloudinaryCloudName}/image/upload/f_auto,q_auto/${cleanKey}`;
+  }
+  if (!r2BaseUrl) return "";
+  return `${r2BaseUrl.replace(/\/$/, "")}/${cleanKey}`;
+}
+
+function triggerDownload(url: string, filename: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
 
 export function SeriesDocumentsManager({
   seriesId,
+  r2BaseUrl,
+  cloudinaryCloudName,
   initialAssets,
   uploadAction,
   renameAction,
   deleteAction,
 }: {
   seriesId: string;
+  r2BaseUrl: string;
+  cloudinaryCloudName: string;
   initialAssets: AssetRow[];
   uploadAction: (formData: FormData) => Promise<{ assets?: AssetRow[] }>;
   renameAction: (formData: FormData) => Promise<{ asset: AssetRow }>;
@@ -32,6 +74,9 @@ export function SeriesDocumentsManager({
   const [editingName, setEditingName] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  const resolveUrl = (asset: AssetRow) =>
+    asset.publicUrl || buildPublicUrl(asset.storage_provider, asset.file_key, r2BaseUrl, cloudinaryCloudName);
 
   const grouped = useMemo(
     () => ({
@@ -85,6 +130,15 @@ export function SeriesDocumentsManager({
     }
   };
 
+  const handleDownloadAll = (type: AssetType) => {
+    const items = grouped[type];
+    items.forEach((asset, i) => {
+      const url = resolveUrl(asset);
+      if (!url) return;
+      setTimeout(() => triggerDownload(url, asset.title || asset.file_key.split("/").pop() || `file-${i}`), i * 300);
+    });
+  };
+
   return (
     <>
       <section className="grid gap-4 xl:grid-cols-2">
@@ -132,49 +186,93 @@ export function SeriesDocumentsManager({
           <div className="mt-3 space-y-3 text-sm">
             {(["technical_panel", "catalog_pdf", "ambient_image"] as AssetType[]).map((type) => (
               <div key={type} className="rounded-lg border border-slate-200 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{type}</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    {SECTION_LABELS[type]} ({grouped[type].length})
+                  </p>
+                  {grouped[type].length > 0 && (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-all duration-150 hover:-translate-y-px hover:bg-slate-50 active:scale-[0.98]"
+                      onClick={() => handleDownloadAll(type)}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Descargar todo
+                    </button>
+                  )}
+                </div>
                 <div className="mt-2 space-y-2">
-                  {grouped[type].map((asset) => (
-                    <div key={asset.id} className="rounded-md border border-slate-200 bg-slate-50 p-2">
-                      <div className="grid gap-2 md:grid-cols-[1fr_auto_auto]">
-                        <input
-                          className="input"
-                          value={editingName[asset.id] ?? asset.title ?? ""}
-                          onChange={(e) => setEditingName((prev) => ({ ...prev, [asset.id]: e.target.value }))}
-                          disabled={pending[asset.id]}
-                        />
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          disabled={
-                            pending[asset.id] ||
-                            (editingName[asset.id] ?? asset.title ?? "").trim().length === 0 ||
-                            (editingName[asset.id] ?? asset.title ?? "").trim() === (asset.title ?? "").trim()
-                          }
-                          onClick={() => {
-                            const nextName = (editingName[asset.id] ?? asset.title ?? "").trim();
-                            const ok = window.confirm(`¿Renombrar archivo a "${nextName}"?`);
-                            if (!ok) return;
-                            void handleRename(asset);
-                          }}
-                        >
-                          Renombrar
-                        </button>
-                        <button
-                          type="button"
-                          className="inline-flex items-center justify-center rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 transition-all duration-150 hover:-translate-y-px hover:bg-red-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-                          disabled={pending[asset.id]}
-                          onClick={() => {
-                            const ok = window.confirm(`¿Eliminar archivo "${asset.title || asset.file_key}"?`);
-                            if (!ok) return;
-                            void handleDelete(asset);
-                          }}
-                        >
-                          Borrar
-                        </button>
+                  {grouped[type].map((asset) => {
+                    const publicUrl = resolveUrl(asset);
+                    return (
+                      <div key={asset.id} className="rounded-md border border-slate-200 bg-slate-50 p-2">
+                        <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+                          <input
+                            className="input"
+                            value={editingName[asset.id] ?? asset.title ?? ""}
+                            onChange={(e) => setEditingName((prev) => ({ ...prev, [asset.id]: e.target.value }))}
+                            disabled={pending[asset.id]}
+                          />
+                          <div className="flex items-center gap-1.5">
+                            {publicUrl && (
+                              <>
+                                <a
+                                  href={publicUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white p-2 text-slate-600 transition-all duration-150 hover:-translate-y-px hover:bg-slate-50 hover:text-indigo-600 active:scale-[0.98]"
+                                  title="Abrir en nueva pestaña"
+                                >
+                                  <ExternalLink className="h-4 w-4" />
+                                </a>
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white p-2 text-slate-600 transition-all duration-150 hover:-translate-y-px hover:bg-slate-50 hover:text-indigo-600 active:scale-[0.98]"
+                                  title="Descargar"
+                                  onClick={() =>
+                                    triggerDownload(publicUrl, asset.title || asset.file_key.split("/").pop() || "file")
+                                  }
+                                >
+                                  <Download className="h-4 w-4" />
+                                </button>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              className="btn-secondary text-xs"
+                              disabled={
+                                pending[asset.id] ||
+                                (editingName[asset.id] ?? asset.title ?? "").trim().length === 0 ||
+                                (editingName[asset.id] ?? asset.title ?? "").trim() === (asset.title ?? "").trim()
+                              }
+                              onClick={() => {
+                                const nextName = (editingName[asset.id] ?? asset.title ?? "").trim();
+                                const ok = window.confirm(`¿Renombrar archivo a "${nextName}"?`);
+                                if (!ok) return;
+                                void handleRename(asset);
+                              }}
+                            >
+                              Renombrar
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex items-center justify-center rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition-all duration-150 hover:-translate-y-px hover:bg-red-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                              disabled={pending[asset.id]}
+                              onClick={() => {
+                                const ok = window.confirm(
+                                  `¿Eliminar archivo "${asset.title || asset.file_key}"?`
+                                );
+                                if (!ok) return;
+                                void handleDelete(asset);
+                              }}
+                            >
+                              Borrar
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {grouped[type].length === 0 ? <p className="text-slate-500">Sin documentos.</p> : null}
                 </div>
               </div>

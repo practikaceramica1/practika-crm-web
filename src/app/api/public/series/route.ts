@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getAssetPublicUrl } from "@/lib/storageUrl";
 
 type ProductLike = {
   id: string;
@@ -64,62 +65,13 @@ function parseFormatForSort(label: string): [number, number] {
   return [Number(w) || 0, Number(h) || 0];
 }
 
-function looksLikeR2Host(url: string) {
-  const u = url.trim().toLowerCase();
-  return u.includes(".r2.dev") || u.includes("r2.cloudflarestorage.com");
-}
-
-/** Origen público R2: cualquier URL en R2_PUBLIC_*; DOCUMENTS solo si el host parece R2. */
-function resolveR2PublicBaseUrl() {
-  const normalize = (raw: string) => {
-    const t = raw.trim().replace(/\/$/, "");
-    if (!t || t === "cloudinary") return "";
-    return t.startsWith("http://") || t.startsWith("https://") ? t : `https://${t}`;
-  };
-  for (const raw of [process.env.R2_PUBLIC_BASE_URL, process.env.NEXT_PUBLIC_R2_PUBLIC_BASE_URL]) {
-    const u = normalize(raw || "");
-    if (u) return u;
-  }
-  const docs = process.env.NEXT_PUBLIC_DOCUMENTS_BASE_URL?.trim() || "";
-  if (docs && docs !== "cloudinary" && looksLikeR2Host(docs)) return normalize(docs);
-  return "";
-}
-
-function inferAssetProvider(storageProvider: string, fileKey: string): "cloudinary" | "r2" {
-  const p = storageProvider.toLowerCase();
-  if (p === "cloudinary") return "cloudinary";
-  if (p === "r2") return "r2";
-  if (fileKey.startsWith("practika/")) return "cloudinary";
-  if (fileKey.startsWith("series/")) return "r2";
-  return "r2";
-}
-
-/** file_key en BD = clave exacta; R2 → base + / + key; Cloudinary → public_id en image/upload. */
-function getAssetPublicUrl(storageProvider: string, fileKey: string) {
-  if (!fileKey) return "";
-  if (fileKey.startsWith("http://") || fileKey.startsWith("https://")) return fileKey;
-
-  const cleanKey = fileKey.replace(/^\/+/, "");
-  const provider = inferAssetProvider(storageProvider, cleanKey);
-
-  if (provider === "cloudinary") {
-    const cloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-    if (!cloud) return "";
-    return `https://res.cloudinary.com/${cloud}/image/upload/f_auto,q_auto/${cleanKey}`;
-  }
-
-  const base = resolveR2PublicBaseUrl();
-  if (!base) return "";
-  return `${base.replace(/\/$/, "")}/${cleanKey}`;
-}
-
 export async function GET() {
   try {
     const supabase = await createClient();
 
     const { data: series, error: seriesError } = await supabase
       .from("series")
-      .select("id,name,slug,description,collection,featured,created_at,status")
+      .select("id,name,slug,description,collection,featured,is_new,created_at,status")
       .eq("status", "published")
       .order("name");
     if (seriesError) throw new Error(seriesError.message);
@@ -305,7 +257,7 @@ export async function GET() {
         effect: [...(seriesFilters?.effect || new Set<string>())].sort((a, b) => a.localeCompare(b, "es")),
         collection: s.collection || undefined,
         featured: Boolean(s.featured),
-        new: false,
+        new: Boolean(s.is_new),
         createdAt: s.created_at || undefined,
         seriesDownloads:
           technicalPanels.length > 0 || catalogPdfs.length > 0

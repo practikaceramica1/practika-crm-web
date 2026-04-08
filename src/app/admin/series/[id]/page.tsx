@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { FileText, Filter, Layers3, Palette } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { getAssetPublicUrl, resolveR2PublicBaseUrl } from "@/lib/storageUrl";
 import { SetupRequired } from "@/components/admin/SetupRequired";
 import { isSchemaNotReadyError } from "@/lib/supabase/error-handling";
 import { MultiFilterPicker } from "@/components/admin/MultiFilterPicker";
@@ -18,6 +19,7 @@ import {
   setColorFiltersAction,
   setFormatFiltersAction,
   setSeriesFiltersAction,
+  toggleSeriesNewAction,
   updateFormatMaterialAction,
   uploadSeriesDocumentsAction,
 } from "../actions";
@@ -226,15 +228,38 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
       <section className="card p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-900">{series.name}</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-semibold text-slate-900">{series.name}</h1>
+              {series.is_new && (
+                <span className="inline-flex items-center rounded-full bg-orange-500 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider text-white">
+                  Nuevo
+                </span>
+              )}
+            </div>
             <p className="mt-1 text-sm text-slate-500">Vista modular por pasos · {series.slug}</p>
           </div>
-          <Link
-            href={`/admin/series/${series.id}/delete`}
-            className="inline-flex items-center justify-center rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
-          >
-            Eliminar serie
-          </Link>
+          <div className="flex items-center gap-3">
+            <form action={toggleSeriesNewAction}>
+              <input type="hidden" name="seriesId" value={series.id} />
+              <input type="hidden" name="isNew" value={series.is_new ? "false" : "true"} />
+              <button
+                type="submit"
+                className={`inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-px active:scale-[0.98] ${
+                  series.is_new
+                    ? "border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {series.is_new ? "Quitar novedad" : "Marcar como novedad"}
+              </button>
+            </form>
+            <Link
+              href={`/admin/series/${series.id}/delete`}
+              className="inline-flex items-center justify-center rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+            >
+              Eliminar serie
+            </Link>
+          </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
           <Link href={`/admin/series/${series.id}?view=documents`} className={tabClass(view === "documents")}><FileText className="h-4 w-4" />Documentos</Link>
@@ -247,14 +272,16 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
       {view === "documents" ? (
         <SeriesDocumentsManager
           seriesId={series.id}
-          initialAssets={assetsRows as Array<{
+          r2BaseUrl={resolveR2PublicBaseUrl()}
+          cloudinaryCloudName={process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || ""}
+          initialAssets={(assetsRows as Array<{
             id: string;
             asset_type: "technical_panel" | "catalog_pdf" | "ambient_image";
             title: string | null;
             file_key: string;
             storage_provider: string;
             sort_order?: number | null;
-          }>}
+          }>).map((a) => ({ ...a, publicUrl: getAssetPublicUrl(a.storage_provider, a.file_key) }))}
           uploadAction={uploadSeriesDocumentsAction}
           renameAction={renameSeriesAssetAction}
           deleteAction={deleteSeriesAssetAction}

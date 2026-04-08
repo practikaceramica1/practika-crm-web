@@ -10,6 +10,10 @@ import { copyObjectInR2, deleteObjectFromR2, uploadToR2 } from "@/lib/uploads/r2
 import { deleteCloudinaryImage, renameCloudinaryImage, uploadImageToCloudinary } from "@/lib/uploads/cloudinary";
 
 const createSeriesSchema = z.object({ name: z.string().min(2) });
+const toggleSeriesNewSchema = z.object({
+  seriesId: z.string().uuid(),
+  isNew: z.coerce.boolean(),
+});
 const deleteSeriesSchema = z.object({ seriesId: z.string().uuid() });
 const addFormatSchema = z.object({
   seriesId: z.string().uuid(),
@@ -88,12 +92,31 @@ export async function createSeriesAction(formData: FormData) {
   const slug = slugify(parsed.data.name);
   const { data, error } = await supabase
     .from("series")
-    .insert({ name: parsed.data.name.trim(), slug, status: "published", featured: false })
+    .insert({ name: parsed.data.name.trim(), slug, status: "published", featured: false, is_new: false })
     .select("id")
     .single();
   if (error) throw new Error(error.message);
   revalidatePath("/admin/series");
   redirect(`/admin/series/${data.id}`);
+}
+
+export async function toggleSeriesNewAction(formData: FormData) {
+  await requireAdminUser();
+  const supabase = await createClient();
+  const parsed = toggleSeriesNewSchema.safeParse({
+    seriesId: formData.get("seriesId"),
+    isNew: formData.get("isNew") === "true",
+  });
+  if (!parsed.success) throw new Error("Datos inválidos");
+
+  const { error } = await supabase
+    .from("series")
+    .update({ is_new: parsed.data.isNew })
+    .eq("id", parsed.data.seriesId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/series");
+  revalidatePath(`/admin/series/${parsed.data.seriesId}`);
 }
 
 export async function deleteSeriesAction(formData: FormData) {
