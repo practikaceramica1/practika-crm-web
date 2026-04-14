@@ -32,6 +32,29 @@ export function ColorBulkCreateCard({
   const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const itemsJson = useMemo(() => JSON.stringify(items.map((i) => ({ name: i.name, sourceFile: i.sourceFile }))), [items]);
+
+  function addImageFiles(list: FileList | File[] | null) {
+    const raw = Array.from(list || []);
+    const files = raw.filter(
+      (f) =>
+        f.type.startsWith("image/") ||
+        /\.(jpe?g|png|gif|webp|bmp|tif|tiff|svg|avif|heic|heif)$/i.test(f.name)
+    );
+    if (!files.length) {
+      if (raw.length) {
+        setSnackbar({ type: "error", message: "Solo se admiten archivos de imagen." });
+      }
+      return;
+    }
+    const added = files.map((file) => ({
+      id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 7)}`,
+      name: nameFromFile(file.name),
+      sourceFile: file.name,
+      previewUrl: URL.createObjectURL(file),
+    }));
+    setItems((prev) => [...prev, ...added]);
+  }
+
   const submitAction = async (formData: FormData) => {
     try {
       await action(formData);
@@ -67,7 +90,23 @@ export function ColorBulkCreateCard({
           <div className="input bg-slate-50 text-xs text-slate-500">{variantType === "c3" ? "Antideslizante (C3)" : variantType}</div>
           <div className="input bg-slate-50 text-xs text-slate-500">Producción</div>
         </div>
-        <label className="mt-2 block cursor-pointer rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm text-slate-600 hover:border-indigo-500 hover:bg-indigo-50">
+        <label
+          className="mt-2 block cursor-pointer rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm text-slate-600 hover:border-indigo-500 hover:bg-indigo-50"
+          onDragEnter={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "copy";
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            addImageFiles(e.dataTransfer.files);
+          }}
+        >
           Arrastra imágenes aquí o haz clic
           <input
             ref={fileInputRef}
@@ -76,14 +115,8 @@ export function ColorBulkCreateCard({
             accept="image/*"
             className="hidden"
             onChange={(e) => {
-              const files = Array.from(e.target.files || []);
-              const added = files.map((file) => ({
-                id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 7)}`,
-                name: nameFromFile(file.name),
-                sourceFile: file.name,
-                previewUrl: URL.createObjectURL(file),
-              }));
-              setItems((prev) => [...prev, ...added]);
+              addImageFiles(e.target.files);
+              e.target.value = "";
             }}
           />
         </label>

@@ -37,6 +37,22 @@ function DocumentUploadSubmitButton({
 
 type DocType = "technical_panel" | "catalog_pdf" | "ambient_image";
 
+function filterFilesByAccept(files: File[], accept: string): File[] {
+  const tokens = accept.split(",").map((t) => t.trim()).filter(Boolean);
+  if (!tokens.length) return files;
+  return files.filter((file) =>
+    tokens.some((tok) => {
+      if (tok === "image/*") return file.type.startsWith("image/");
+      if (tok.toLowerCase() === ".pdf" || tok === "application/pdf") {
+        return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      }
+      if (tok.startsWith(".")) return file.name.toLowerCase().endsWith(tok.toLowerCase());
+      if (tok.endsWith("/*")) return file.type.startsWith(`${tok.slice(0, -1)}`);
+      return file.type === tok;
+    })
+  );
+}
+
 export function DocumentDropzoneForm({
   title,
   type,
@@ -62,7 +78,17 @@ export function DocumentDropzoneForm({
   const handlePickFiles = (list: FileList | null) => {
     const picked = Array.from(list || []);
     if (!picked.length) return;
-    setFiles((prev) => [...prev, ...picked]);
+    const allowed = filterFilesByAccept(picked, accept);
+    if (!allowed.length) {
+      if (picked.length) {
+        setSnackbar({
+          type: "error",
+          message: "Ningún archivo coincide con el tipo permitido en esta sección.",
+        });
+      }
+      return;
+    }
+    setFiles((prev) => [...prev, ...allowed]);
   };
 
   const removeFileAt = (index: number) => {
@@ -136,7 +162,23 @@ export function DocumentDropzoneForm({
             {files.length} archivo(s) · {(total / 1024 / 1024).toFixed(2)} MB
           </div>
         </div>
-        <label className="mt-2 block cursor-pointer rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm text-slate-600 hover:border-indigo-500 hover:bg-indigo-50 hover:text-indigo-700">
+        <label
+          className="mt-2 block cursor-pointer rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm text-slate-600 hover:border-indigo-500 hover:bg-indigo-50 hover:text-indigo-700"
+          onDragEnter={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "copy";
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handlePickFiles(e.dataTransfer.files);
+          }}
+        >
           Arrastra archivos o haz clic para seleccionar
           <input
             ref={fileInputRef}
