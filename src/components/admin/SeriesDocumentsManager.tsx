@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Download, ExternalLink } from "lucide-react";
+import type { UploadSeriesDocumentsResult } from "@/app/admin/series/actions";
 import { DocumentDropzoneForm } from "./DocumentDropzoneForm";
 import { Snackbar } from "./Snackbar";
 
@@ -66,7 +67,7 @@ export function SeriesDocumentsManager({
   r2BaseUrl: string;
   cloudinaryCloudName: string;
   initialAssets: AssetRow[];
-  uploadAction: (formData: FormData) => Promise<{ assets?: AssetRow[] }>;
+  uploadAction: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
   renameAction: (formData: FormData) => Promise<{ asset: AssetRow }>;
   deleteAction: (formData: FormData) => Promise<{ assetId: string }>;
 }) {

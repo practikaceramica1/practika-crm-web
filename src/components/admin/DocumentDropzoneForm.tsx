@@ -3,6 +3,7 @@
 import { FileUp, ImageIcon, Loader2, X } from "lucide-react";
 import { useFormStatus } from "react-dom";
 import { useRef, useState } from "react";
+import type { UploadSeriesDocumentsResult } from "@/app/admin/series/actions";
 import { FormPendingSection } from "./FormPendingSection";
 import { Snackbar } from "./Snackbar";
 
@@ -48,7 +49,7 @@ export function DocumentDropzoneForm({
   type: DocType;
   seriesId: string;
   accept: string;
-  action: (formData: FormData) => Promise<{ assets?: Array<{ id: string; asset_type: DocType; title: string | null; file_key: string; storage_provider: string; sort_order?: number | null }> }>;
+  action: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
   onUploaded?: (assets: Array<{ id: string; asset_type: DocType; title: string | null; file_key: string; storage_provider: string; sort_order?: number | null }>) => void;
 }) {
   const [files, setFiles] = useState<File[]>([]);
@@ -81,9 +82,13 @@ export function DocumentDropzoneForm({
   const submitAction = async (formData: FormData) => {
     try {
       const result = await action(formData);
+      if (!result.ok) {
+        setSnackbar({ type: "error", message: result.message });
+        return;
+      }
       setFiles([]);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      if (onUploaded && result.assets?.length) onUploaded(result.assets);
+      if (onUploaded && result.assets.length) onUploaded(result.assets);
     } catch (error) {
       const message = error instanceof Error ? error.message : "No se pudo completar la subida";
       setSnackbar({ type: "error", message });
