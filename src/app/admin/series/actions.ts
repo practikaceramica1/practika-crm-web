@@ -9,7 +9,12 @@ import { errorToUserMessage } from "@/lib/errorMessage";
 import { slugify } from "@/lib/text";
 import { prepareAmbientImageForUpload } from "@/lib/uploads/prepareAmbientImage";
 import { copyObjectInR2, deleteObjectFromR2, uploadToR2 } from "@/lib/uploads/r2";
-import { deleteCloudinaryImage, renameCloudinaryImage, uploadImageToCloudinary } from "@/lib/uploads/cloudinary";
+import {
+  deleteCloudinaryImage,
+  renameCloudinaryImage,
+  signAmbientImageUpload,
+  uploadImageToCloudinary,
+} from "@/lib/uploads/cloudinary";
 
 const createSeriesSchema = z.object({ name: z.string().min(2) });
 const toggleSeriesNewSchema = z.object({
@@ -59,6 +64,22 @@ export type UploadSeriesDocumentsResult =
   | { ok: true; assets: UploadedSeriesAssetRow[] }
   | { ok: false; message: string };
 
+/** Firma para subir el ambiente desde el cliente a Cloudinary (evita el límite de body en Vercel). */
+export type SignAmbientUploadResult =
+  | {
+      ok: true;
+      cloudName: string;
+      apiKey: string;
+      timestamp: number;
+      signature: string;
+      folder: string;
+      publicId: string;
+      assetTitle: string;
+      sortOrder: number;
+      languageCode: string;
+    }
+  | { ok: false; message: string };
+
 /** En Node, entradas de FormData a veces no pasan `instanceof File`; aceptamos cualquier Blob con arrayBuffer. */
 function getFilePartsFromFormData(formData: FormData): File[] {
   const items = formData.getAll("files");
@@ -90,8 +111,39 @@ function inferExtension(fileName: string, mimeType?: string | null) {
   if (mimeType.includes("png")) return "png";
   if (mimeType.includes("webp")) return "webp";
   if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return "jpg";
+  if (mimeType.includes("gif")) return "gif";
+  if (mimeType.includes("svg")) return "svg";
+  if (mimeType.includes("avif")) return "avif";
+  if (mimeType.includes("heic") || mimeType.includes("heif")) return "heic";
+  if (mimeType.includes("bmp")) return "bmp";
   if (mimeType.includes("tif")) return "tif";
   return "bin";
+}
+
+const IMAGE_FILE_EXTENSIONS = new Set([
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "gif",
+  "tif",
+  "tiff",
+  "bmp",
+  "svg",
+  "avif",
+  "heic",
+  "heif",
+]);
+
+function isPdfUpload(ext: string, mime: string | null) {
+  const e = ext.toLowerCase();
+  if (e === "pdf") return true;
+  return (mime || "").toLowerCase().includes("pdf");
+}
+
+function isImageUpload(ext: string, mime: string | null) {
+  if ((mime || "").toLowerCase().startsWith("image/")) return true;
+  return IMAGE_FILE_EXTENSIONS.has(ext.toLowerCase());
 }
 
 function buildPatternFileName(seriesSlug: string, assetType: DocAssetType, order: number, ext: string) {
@@ -539,6 +591,120 @@ export async function setColorFiltersAction(formData: FormData) {
   }
 }
 
+export async function signSeriesAmbientUploadAction(formData: FormData): Promise<SignAmbientUploadResult> {
+  await requireAdminUser();
+  try {
+    const seriesIdParsed = z.string().uuid().safeParse(formData.get("seriesId"));
+    if (!seriesIdParsed.success) return { ok: false, message: "Serie no válida." };
+    const seriesId = seriesIdParsed.data;
+
+    const originalFileName = String(formData.get("originalFileName") || "").trim();
+    if (originalFileName.length < 2) return { ok: false, message: "Nombre de archivo no válido." };
+
+    const mimeHint = String(formData.get("mimeHint") || "").trim() || null;
+    const languageCode = String(formData.get("languageCode") || "na").trim() || "na";
+
+    const supabase = await createClient();
+    const series = await supabase.from("series").select("slug").eq("id", seriesId).single();
+    if (!series.data?.slug) return { ok: false, message: "Serie no encontrada." };
+
+    const currentOrder = await supabase
+      .from("series_assets")
+      .select("sort_order")
+      .eq("series_id", seriesId)
+      .eq("asset_type", "ambient_image")
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (currentOrder.error) return { ok: false, message: errorToUserMessage(currentOrder.error) };
+
+    const lastOrder = Number(currentOrder.data?.sort_order || 0);
+    const sortOrder = lastOrder + 1;
+    const ext = inferExtension(originalFileName, mimeHint);
+    const normalizedFileName = buildPatternFileName(series.data.slug, "ambient_image", sortOrder, ext);
+    const publicBase = normalizedFileName.replace(/\.[^/.]+$/, "");
+    const folder = `practika/series/${series.data.slug}/${getAssetFolder("ambient_image")}`;
+    const signed = signAmbientImageUpload(folder, publicBase);
+
+    return {
+      ok: true,
+      cloudName: signed.cloudName,
+      apiKey: signed.apiKey,
+      timestamp: signed.timestamp,
+      signature: signed.signature,
+      folder: signed.folder,
+      publicId: signed.publicId,
+      assetTitle: normalizedFileName,
+      sortOrder,
+      languageCode,
+    };
+  } catch (e) {
+    return { ok: false, message: errorToUserMessage(e) };
+  }
+}
+
+export async function registerSeriesAmbientAssetAction(formData: FormData): Promise<UploadSeriesDocumentsResult> {
+  await requireAdminUser();
+  try {
+    const seriesIdParsed = z.string().uuid().safeParse(formData.get("seriesId"));
+    if (!seriesIdParsed.success) return { ok: false, message: "Serie no válida." };
+    const seriesId = seriesIdParsed.data;
+
+    const publicIdRaw = String(formData.get("publicId") || "").trim();
+    const assetTitle = String(formData.get("assetTitle") || "").trim();
+    const sortOrderParsed = z.coerce.number().int().positive().safeParse(formData.get("sortOrder"));
+    if (!sortOrderParsed.success) return { ok: false, message: "Orden de archivo no válido." };
+
+    const languageCode = String(formData.get("languageCode") || "na").trim() || "na";
+    const mimeType = String(formData.get("mimeType") || "image/jpeg").trim() || "image/jpeg";
+
+    if (publicIdRaw.length < 8 || assetTitle.length < 4) {
+      return { ok: false, message: "Datos de registro incompletos." };
+    }
+
+    const supabase = await createClient();
+    const series = await supabase.from("series").select("slug").eq("id", seriesId).single();
+    if (!series.data?.slug) return { ok: false, message: "Serie no encontrada." };
+
+    const prefix = `practika/series/${series.data.slug}/${getAssetFolder("ambient_image")}/`;
+    let fileKey = publicIdRaw;
+    if (!fileKey.startsWith(prefix)) {
+      if (fileKey.includes("..") || fileKey.includes("/")) {
+        return { ok: false, message: "Identificador de recurso no válido." };
+      }
+      fileKey = `${prefix}${fileKey}`;
+    }
+
+    if (!assetTitle.startsWith(`${series.data.slug}-`)) {
+      return { ok: false, message: "El título del archivo no coincide con la serie." };
+    }
+
+    const inserted = await supabase
+      .from("series_assets")
+      .insert({
+        series_id: seriesId,
+        asset_type: "ambient_image",
+        storage_provider: "cloudinary",
+        file_key: fileKey,
+        mime_type: mimeType,
+        language_code: languageCode,
+        title: assetTitle,
+        sort_order: sortOrderParsed.data,
+      })
+      .select("id,asset_type,title,file_key,storage_provider,sort_order")
+      .single();
+
+    if (inserted.error) return { ok: false, message: errorToUserMessage(inserted.error) };
+
+    revalidatePath(`/admin/series/${seriesId}`);
+    revalidatePath("/admin/formats");
+
+    return { ok: true, assets: (inserted.data ? [inserted.data] : []) as UploadedSeriesAssetRow[] };
+  } catch (e) {
+    return { ok: false, message: errorToUserMessage(e) };
+  }
+}
+
 export async function uploadSeriesDocumentsAction(formData: FormData): Promise<UploadSeriesDocumentsResult> {
   await requireAdminUser();
   try {
@@ -590,18 +756,34 @@ export async function uploadSeriesDocumentsAction(formData: FormData): Promise<U
       }
       let buffer = Buffer.from(await file.arrayBuffer());
       const sortOrder = lastOrder + i + 1;
-      let ext = assetType === "ambient_image" ? inferExtension(file.name, file.type) : "pdf";
-      let mimeForRow: string | null = file.type || null;
+      const mime = file.type || null;
+      const initialExt = inferExtension(file.name, mime);
+      const uploadAsPdf = isPdfUpload(initialExt, mime);
+      const uploadAsImage = isImageUpload(initialExt, mime);
 
-      if (assetType === "ambient_image") {
-        const prepared = await prepareAmbientImageForUpload(buffer, ext, file.type || null);
+      if (!uploadAsPdf && !uploadAsImage) {
+        return {
+          ok: false,
+          message: `Tipo no admitido en "${file.name || "archivo"}". Solo se permiten PDF e imágenes (JPEG, PNG, WebP, TIFF, etc.).`,
+        };
+      }
+
+      let ext = initialExt;
+      let mimeForRow: string | null = mime;
+
+      if (uploadAsImage) {
+        const prepared = await prepareAmbientImageForUpload(buffer, ext, mime);
         buffer = Buffer.from(prepared.buffer);
         ext = prepared.extension;
         mimeForRow = prepared.mimeType;
+      } else {
+        ext = "pdf";
+        mimeForRow = mime || "application/pdf";
       }
 
       const normalizedFileName = buildPatternFileName(series.data.slug, assetType, sortOrder, ext);
-      if (assetType === "ambient_image") {
+
+      if (uploadAsImage) {
         const publicBase = normalizedFileName.replace(/\.[^/.]+$/, "");
         const result = await uploadImageToCloudinary(
           buffer,
@@ -620,13 +802,13 @@ export async function uploadSeriesDocumentsAction(formData: FormData): Promise<U
         });
       } else {
         const key = `series/${series.data.slug}/${getAssetFolder(assetType)}/${normalizedFileName}`;
-        await uploadToR2(key, buffer, file.type || "application/pdf");
+        await uploadToR2(key, buffer, mimeForRow || "application/pdf");
         rows.push({
           series_id: seriesId,
           asset_type: assetType,
           storage_provider: "r2",
           file_key: key,
-          mime_type: file.type || null,
+          mime_type: mimeForRow,
           language_code: languageCode,
           title: normalizedFileName,
           sort_order: sortOrder,

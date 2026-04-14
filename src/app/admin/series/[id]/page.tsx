@@ -22,6 +22,8 @@ import {
   setSeriesFiltersAction,
   toggleSeriesNewAction,
   updateFormatMaterialAction,
+  registerSeriesAmbientAssetAction,
+  signSeriesAmbientUploadAction,
   uploadSeriesDocumentsAction,
 } from "../actions";
 
@@ -287,6 +289,8 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
             sort_order?: number | null;
           }>).map((a) => ({ ...a, publicUrl: getAssetPublicUrl(a.storage_provider, a.file_key) }))}
           uploadAction={uploadSeriesDocumentsAction}
+          ambientSignAction={signSeriesAmbientUploadAction}
+          ambientRegisterAction={registerSeriesAmbientAssetAction}
           renameAction={renameSeriesAssetAction}
           deleteAction={deleteSeriesAssetAction}
         />

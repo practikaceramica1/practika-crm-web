@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Download, ExternalLink } from "lucide-react";
-import type { UploadSeriesDocumentsResult } from "@/app/admin/series/actions";
+import type { SignAmbientUploadResult, UploadSeriesDocumentsResult } from "@/app/admin/series/actions";
 import { DocumentDropzoneForm } from "./DocumentDropzoneForm";
 import { Snackbar } from "./Snackbar";
 
@@ -23,6 +23,10 @@ const SECTION_LABELS: Record<AssetType, string> = {
   catalog_pdf: "Catálogos PDF",
   ambient_image: "Ambientes",
 };
+
+/** PDF e imágenes en las tres zonas de documentos (mismo criterio que el servidor). */
+const SERIES_DOCUMENT_FILE_ACCEPT =
+  "application/pdf,.pdf,image/*,.png,.jpg,.jpeg,.jpe,.webp,.gif,.tif,.tiff,.bmp,.svg,.avif,.heic,.heif";
 
 function buildPublicUrl(
   storageProvider: string,
@@ -60,6 +64,8 @@ export function SeriesDocumentsManager({
   cloudinaryCloudName,
   initialAssets,
   uploadAction,
+  ambientSignAction,
+  ambientRegisterAction,
   renameAction,
   deleteAction,
 }: {
@@ -68,6 +74,9 @@ export function SeriesDocumentsManager({
   cloudinaryCloudName: string;
   initialAssets: AssetRow[];
   uploadAction: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
+  /** Subida firmada a Cloudinary desde el navegador (evita límite de body en producción). */
+  ambientSignAction?: (formData: FormData) => Promise<SignAmbientUploadResult>;
+  ambientRegisterAction?: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
   renameAction: (formData: FormData) => Promise<{ asset: AssetRow }>;
   deleteAction: (formData: FormData) => Promise<{ assetId: string }>;
 }) {
@@ -145,13 +154,15 @@ export function SeriesDocumentsManager({
       <section className="grid gap-4 xl:grid-cols-2">
         <article className="card p-5">
           <h2 className="text-lg font-semibold">Subidas directas</h2>
-          <p className="mt-1 text-sm text-slate-500">Nombres automáticos: serie + sección + numeración.</p>
+          <p className="mt-1 text-sm text-slate-500">
+            En cada sección puedes subir PDF o imagen (JPEG, PNG, WebP, TIFF, etc.). Nombres automáticos: serie + sección + numeración.
+          </p>
           <div className="mt-4 grid gap-3">
             <DocumentDropzoneForm
               title="Panel técnico"
               type="technical_panel"
               seriesId={seriesId}
-              accept=".pdf"
+              accept={SERIES_DOCUMENT_FILE_ACCEPT}
               action={uploadAction}
               onUploaded={(newAssets) => {
                 upsertAssets(newAssets);
@@ -162,7 +173,7 @@ export function SeriesDocumentsManager({
               title="PDF serie / catálogo"
               type="catalog_pdf"
               seriesId={seriesId}
-              accept=".pdf"
+              accept={SERIES_DOCUMENT_FILE_ACCEPT}
               action={uploadAction}
               onUploaded={(newAssets) => {
                 upsertAssets(newAssets);
@@ -173,8 +184,10 @@ export function SeriesDocumentsManager({
               title="Ambientes"
               type="ambient_image"
               seriesId={seriesId}
-              accept="image/*,.tif,.tiff"
+              accept={SERIES_DOCUMENT_FILE_ACCEPT}
               action={uploadAction}
+              signAmbientUpload={ambientSignAction}
+              registerAmbientAsset={ambientRegisterAction}
               onUploaded={(newAssets) => {
                 upsertAssets(newAssets);
                 setSnackbar({ type: "success", message: "Ambientes subidos" });

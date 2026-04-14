@@ -15,6 +15,41 @@ function configureCloudinary() {
   });
 }
 
+export type AmbientImageSignedUploadPayload = {
+  cloudName: string;
+  apiKey: string;
+  timestamp: number;
+  signature: string;
+  folder: string;
+  publicId: string;
+};
+
+/** Firma para subida directa desde el navegador a Cloudinary (evita límite de body en Vercel). */
+export function signAmbientImageUpload(folder: string, publicId: string): AmbientImageSignedUploadPayload {
+  configureCloudinary();
+  const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME!;
+  const apiKey = process.env.CLOUDINARY_API_KEY!;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET!;
+  const timestamp = Math.round(Date.now() / 1000);
+  const signed = cloudinary.utils.sign_request(
+    {
+      timestamp,
+      folder,
+      public_id: publicId,
+      overwrite: true,
+    },
+    { api_key: apiKey, api_secret: apiSecret }
+  );
+  return {
+    cloudName,
+    apiKey: String(signed.api_key),
+    timestamp: Number(signed.timestamp),
+    signature: String(signed.signature),
+    folder: String(signed.folder),
+    publicId: String(signed.public_id),
+  };
+}
+
 export async function uploadImageToCloudinary(buffer: Buffer, folder: string, publicId: string) {
   configureCloudinary();
 

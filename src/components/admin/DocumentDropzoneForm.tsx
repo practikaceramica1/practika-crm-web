@@ -1,29 +1,40 @@
 "use client";
 
+import type { FormEvent } from "react";
 import { FileUp, ImageIcon, Loader2, X } from "lucide-react";
 import { useFormStatus } from "react-dom";
 import { useRef, useState } from "react";
-import type { UploadSeriesDocumentsResult } from "@/app/admin/series/actions";
+import type { SignAmbientUploadResult, UploadSeriesDocumentsResult } from "@/app/admin/series/actions";
 import { FormPendingSection } from "./FormPendingSection";
 import { Snackbar } from "./Snackbar";
+
+function readAmbientDirectThresholdBytes(): number {
+  const raw = process.env.NEXT_PUBLIC_AMBIENT_DIRECT_UPLOAD_MIN_BYTES?.trim();
+  if (!raw) return 2_800_000;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 200_000 ? n : 2_800_000;
+}
 
 function DocumentUploadSubmitButton({
   filesLength,
   beforeSubmit,
+  busyOverride,
 }: {
   filesLength: number;
   beforeSubmit: () => void;
+  busyOverride: boolean;
 }) {
   const { pending } = useFormStatus();
+  const busy = busyOverride || pending;
   return (
     <button
       type="submit"
       className="btn-primary mt-2 w-full text-xs"
-      disabled={filesLength === 0 || pending}
-      aria-busy={pending}
+      disabled={filesLength === 0 || busy}
+      aria-busy={busy}
       onMouseDown={() => beforeSubmit()}
     >
-      {pending ? (
+      {busy ? (
         <span className="inline-flex items-center justify-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin" />
           Subiendo...
@@ -60,6 +71,8 @@ export function DocumentDropzoneForm({
   accept,
   action,
   onUploaded,
+  signAmbientUpload,
+  registerAmbientAsset,
 }: {
   title: string;
   type: DocType;
@@ -67,13 +80,20 @@ export function DocumentDropzoneForm({
   accept: string;
   action: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
   onUploaded?: (assets: Array<{ id: string; asset_type: DocType; title: string | null; file_key: string; storage_provider: string; sort_order?: number | null }>) => void;
+  /** Si están definidos, los ambientes ≥ umbral se suben del navegador a Cloudinary (recomendado en Vercel). */
+  signAmbientUpload?: (formData: FormData) => Promise<SignAmbientUploadResult>;
+  registerAmbientAsset?: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
 }) {
   const [files, setFiles] = useState<File[]>([]);
   const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [languageCode, setLanguageCode] = useState(type === "catalog_pdf" ? "es-en" : "na");
+  const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const icon = type === "ambient_image" ? <ImageIcon className="h-5 w-5" /> : <FileUp className="h-5 w-5" />;
   const total = files.reduce((sum, f) => sum + f.size, 0);
+
+  const useAmbientDirect =
+    type === "ambient_image" && typeof signAmbientUpload === "function" && typeof registerAmbientAsset === "function";
 
   const handlePickFiles = (list: FileList | null) => {
     const picked = Array.from(list || []);
@@ -96,7 +116,6 @@ export function DocumentDropzoneForm({
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  /** Next.js serializa mal los File si se arma FormData a mano; el submit nativo necesita el input. */
   const syncQueuedFilesToInput = () => {
     const input = fileInputRef.current;
     if (!input || files.length === 0) return;
@@ -105,41 +124,127 @@ export function DocumentDropzoneForm({
     input.files = dt.files;
   };
 
-  const submitAction = async (formData: FormData) => {
+  async function uploadOneAmbientViaCloudinary(file: File): Promise<UploadSeriesDocumentsResult> {
+    const sign = signAmbientUpload!;
+    const register = registerAmbientAsset!;
+
+    const sfd = new FormData();
+    sfd.set("seriesId", seriesId);
+    sfd.set("originalFileName", file.name);
+    sfd.set("mimeHint", file.type || "");
+    sfd.set("languageCode", languageCode);
+    const signed = await sign(sfd);
+    if (!signed.ok) {
+      return { ok: false, message: signed.message };
+    }
+
+    const cfd = new FormData();
+    cfd.append("file", file);
+    cfd.append("api_key", signed.apiKey);
+    cfd.append("timestamp", String(signed.timestamp));
+    cfd.append("signature", signed.signature);
+    cfd.append("folder", signed.folder);
+    cfd.append("public_id", signed.publicId);
+    cfd.append("overwrite", "true");
+
+    const url = `https://api.cloudinary.com/v1_1/${signed.cloudName}/image/upload`;
+    const res = await fetch(url, { method: "POST", body: cfd });
+    const data = (await res.json()) as { public_id?: string; format?: string; error?: { message?: string } };
+    if (!res.ok) {
+      const msg = data?.error?.message || `Cloudinary HTTP ${res.status}`;
+      return { ok: false, message: msg };
+    }
+
+    const pid = String(data.public_id || "").trim();
+    if (!pid) {
+      return { ok: false, message: "Cloudinary no devolvió public_id." };
+    }
+
+    const mime =
+      (file.type && file.type.length > 0 && file.type) ||
+      (typeof data.format === "string" ? `image/${data.format}` : "image/jpeg");
+
+    const regFd = new FormData();
+    regFd.set("seriesId", seriesId);
+    regFd.set("publicId", pid);
+    regFd.set("assetTitle", signed.assetTitle);
+    regFd.set("sortOrder", String(signed.sortOrder));
+    regFd.set("languageCode", signed.languageCode);
+    regFd.set("mimeType", mime);
+    return register(regFd);
+  }
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    syncQueuedFilesToInput();
+    if (files.length === 0) return;
+
+    setUploading(true);
+    setSnackbar(null);
     try {
-      const result = await action(formData);
-      if (!result.ok) {
-        setSnackbar({ type: "error", message: result.message });
-        return;
+      const collected: Array<{
+        id: string;
+        asset_type: DocType;
+        title: string | null;
+        file_key: string;
+        storage_provider: string;
+        sort_order?: number | null;
+      }> = [];
+
+      if (useAmbientDirect) {
+        const threshold = readAmbientDirectThresholdBytes();
+        for (const file of files) {
+          let result: UploadSeriesDocumentsResult;
+          if (file.size >= threshold) {
+            result = await uploadOneAmbientViaCloudinary(file);
+          } else {
+            const fd = new FormData();
+            fd.set("seriesId", seriesId);
+            fd.set("assetType", type);
+            fd.set("languageCode", languageCode);
+            fd.append("files", file);
+            result = await action(fd);
+          }
+          if (!result.ok) {
+            setSnackbar({ type: "error", message: result.message });
+            return;
+          }
+          collected.push(...result.assets);
+        }
+      } else {
+        const fd = new FormData();
+        fd.set("seriesId", seriesId);
+        fd.set("assetType", type);
+        fd.set("languageCode", languageCode);
+        files.forEach((f) => fd.append("files", f));
+        const result = await action(fd);
+        if (!result.ok) {
+          setSnackbar({ type: "error", message: result.message });
+          return;
+        }
+        collected.push(...result.assets);
       }
+
       setFiles([]);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      if (onUploaded && result.assets.length) onUploaded(result.assets);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "No se pudo completar la subida";
+      if (onUploaded && collected.length) onUploaded(collected);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "No se pudo completar la subida";
       setSnackbar({ type: "error", message });
+    } finally {
+      setUploading(false);
     }
   };
 
   return (
-    <form
-      action={submitAction}
-      className="rounded-xl border border-slate-200 bg-white p-3"
-      onSubmit={() => {
-        syncQueuedFilesToInput();
-      }}
-    >
-      <FormPendingSection>
+    <form className="rounded-xl border border-slate-200 bg-white p-3" onSubmit={(e) => void handleSubmit(e)}>
+      <FormPendingSection busy={uploading}>
         <div className="flex items-center gap-2">
           {icon}
           <p className="text-sm font-semibold">{title}</p>
         </div>
-        <input
-          type="hidden"
-          name="seriesId"
-          value={seriesId}
-        />
-        <input type="hidden" name="assetType" value={type} />
+        <input type="hidden" name="seriesId" value={seriesId} readOnly />
+        <input type="hidden" name="assetType" value={type} readOnly />
         <div className="mt-2 grid grid-cols-2 gap-2">
           {type === "catalog_pdf" ? (
             <select
@@ -154,7 +259,7 @@ export function DocumentDropzoneForm({
             </select>
           ) : (
             <>
-              <input type="hidden" name="languageCode" value="na" />
+              <input type="hidden" name="languageCode" value="na" readOnly />
               <div className="input bg-slate-50 text-xs text-slate-500">Sin idioma (no aplica)</div>
             </>
           )}
@@ -164,19 +269,19 @@ export function DocumentDropzoneForm({
         </div>
         <label
           className="mt-2 block cursor-pointer rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm text-slate-600 hover:border-indigo-500 hover:bg-indigo-50 hover:text-indigo-700"
-          onDragEnter={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
+          onDragEnter={(ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
           }}
-          onDragOver={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            e.dataTransfer.dropEffect = "copy";
+          onDragOver={(ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            ev.dataTransfer.dropEffect = "copy";
           }}
-          onDrop={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            handlePickFiles(e.dataTransfer.files);
+          onDrop={(ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            handlePickFiles(ev.dataTransfer.files);
           }}
         >
           Arrastra archivos o haz clic para seleccionar
@@ -187,9 +292,10 @@ export function DocumentDropzoneForm({
             name="files"
             accept={accept}
             multiple
-            onChange={(e) => {
-              handlePickFiles(e.target.files);
-              e.target.value = "";
+            disabled={uploading}
+            onChange={(ev) => {
+              handlePickFiles(ev.target.files);
+              ev.target.value = "";
             }}
           />
         </label>
@@ -207,6 +313,7 @@ export function DocumentDropzoneForm({
                   type="button"
                   className="inline-flex shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white p-1 text-slate-500 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-700"
                   aria-label={`Quitar ${file.name}`}
+                  disabled={uploading}
                   onClick={() => removeFileAt(idx)}
                 >
                   <X className="h-3.5 w-3.5" />
@@ -215,7 +322,7 @@ export function DocumentDropzoneForm({
             ))}
           </ul>
         ) : null}
-        <DocumentUploadSubmitButton filesLength={files.length} beforeSubmit={syncQueuedFilesToInput} />
+        <DocumentUploadSubmitButton filesLength={files.length} beforeSubmit={syncQueuedFilesToInput} busyOverride={uploading} />
       </FormPendingSection>
       <Snackbar value={snackbar} onClose={() => setSnackbar(null)} />
     </form>
