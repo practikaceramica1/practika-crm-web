@@ -1,4 +1,5 @@
 import { v2 as cloudinary } from "cloudinary";
+import { errorToUserMessage } from "@/lib/errorMessage";
 
 function configureCloudinary() {
   const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
@@ -21,7 +22,10 @@ export async function uploadImageToCloudinary(buffer: Buffer, folder: string, pu
     const stream = cloudinary.uploader.upload_stream(
       { folder, public_id: publicId, resource_type: "image", overwrite: true },
       (error, result) => {
-        if (error || !result) return reject(error || new Error("Error Cloudinary"));
+        if (error || !result) {
+          const msg = error ? errorToUserMessage(error) : "Respuesta vacía de Cloudinary";
+          return reject(new Error(msg));
+        }
         resolve({ publicId: result.public_id });
       }
     );

@@ -5,7 +5,9 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireAdminUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { errorToUserMessage } from "@/lib/errorMessage";
 import { slugify } from "@/lib/text";
+import { prepareAmbientImageForUpload } from "@/lib/uploads/prepareAmbientImage";
 import { copyObjectInR2, deleteObjectFromR2, uploadToR2 } from "@/lib/uploads/r2";
 import { deleteCloudinaryImage, renameCloudinaryImage, uploadImageToCloudinary } from "@/lib/uploads/cloudinary";
 
@@ -573,7 +575,7 @@ export async function uploadSeriesDocumentsAction(formData: FormData): Promise<U
       .limit(1)
       .maybeSingle();
     if (currentOrder.error) {
-      return { ok: false, message: currentOrder.error.message };
+      return { ok: false, message: errorToUserMessage(currentOrder.error) };
     }
     const lastOrder = Number(currentOrder.data?.sort_order || 0);
 
@@ -586,9 +588,18 @@ export async function uploadSeriesDocumentsAction(formData: FormData): Promise<U
           message: `El archivo "${file.name || "sin nombre"}" está vacío o no se ha leído correctamente.`,
         };
       }
-      const buffer = Buffer.from(await file.arrayBuffer());
+      let buffer = Buffer.from(await file.arrayBuffer());
       const sortOrder = lastOrder + i + 1;
-      const ext = assetType === "ambient_image" ? inferExtension(file.name, file.type) : "pdf";
+      let ext = assetType === "ambient_image" ? inferExtension(file.name, file.type) : "pdf";
+      let mimeForRow: string | null = file.type || null;
+
+      if (assetType === "ambient_image") {
+        const prepared = await prepareAmbientImageForUpload(buffer, ext, file.type || null);
+        buffer = Buffer.from(prepared.buffer);
+        ext = prepared.extension;
+        mimeForRow = prepared.mimeType;
+      }
+
       const normalizedFileName = buildPatternFileName(series.data.slug, assetType, sortOrder, ext);
       if (assetType === "ambient_image") {
         const publicBase = normalizedFileName.replace(/\.[^/.]+$/, "");
@@ -602,7 +613,7 @@ export async function uploadSeriesDocumentsAction(formData: FormData): Promise<U
           asset_type: assetType,
           storage_provider: "cloudinary",
           file_key: result.publicId,
-          mime_type: file.type || null,
+          mime_type: mimeForRow,
           language_code: languageCode,
           title: normalizedFileName,
           sort_order: sortOrder,
@@ -627,13 +638,13 @@ export async function uploadSeriesDocumentsAction(formData: FormData): Promise<U
       .insert(rows)
       .select("id,asset_type,title,file_key,storage_provider,sort_order");
     if (inserted.error) {
-      return { ok: false, message: inserted.error.message };
+      return { ok: false, message: errorToUserMessage(inserted.error) };
     }
     revalidatePath(`/admin/series/${seriesId}`);
 
     return { ok: true, assets: (inserted.data || []) as UploadedSeriesAssetRow[] };
   } catch (e) {
-    const raw = e instanceof Error ? e.message : String(e);
+    const raw = errorToUserMessage(e);
     const hint =
       raw.toLowerCase().includes("memory") || raw.toLowerCase().includes("allocation")
         ? " El archivo podría ser demasiado pesado para procesarlo en memoria."
