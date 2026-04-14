@@ -172,7 +172,7 @@ export function SeriesDocumentsManager({
               title="Ambientes"
               type="ambient_image"
               seriesId={seriesId}
-              accept="image/*"
+              accept="image/*,.tif,.tiff"
               action={uploadAction}
               onUploaded={(newAssets) => {
                 upsertAssets(newAssets);

@@ -13,6 +13,7 @@ import { SubmitButton } from "@/components/admin/SubmitButton";
 import {
   addColorsBulkAction,
   addFormatMaterialAction,
+  deleteArticleColorAction,
   deleteFormatMaterialAction,
   deleteSeriesAssetAction,
   renameSeriesAssetAction,
@@ -23,6 +24,9 @@ import {
   updateFormatMaterialAction,
   uploadSeriesDocumentsAction,
 } from "../actions";
+
+/** Subidas grandes (p. ej. TIFF) por Server Action en esta ruta. En Vercel depende del plan. */
+export const maxDuration = 300;
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -496,6 +500,19 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                           confirmMessage="¿Guardar cambios en los filtros del color?"
                         />
                       </div>
+                      <form action={deleteArticleColorAction} className="mt-3 border-t border-slate-100 pt-3">
+                        <FormPendingSection>
+                          <input type="hidden" name="seriesId" value={series.id} />
+                          <input type="hidden" name="articleColorId" value={c.id} />
+                          <SubmitButton
+                            className="w-full border border-red-200 bg-white text-xs font-semibold text-red-700 hover:bg-red-50 sm:w-auto"
+                            pendingText="Eliminando…"
+                            confirmMessage={`¿Eliminar el color «${c.color_name}» (${c.variant_type === "c3" ? "C3" : c.variant_type})? No se puede deshacer.`}
+                          >
+                            Eliminar color
+                          </SubmitButton>
+                        </FormPendingSection>
+                      </form>
                     </article>
                   ))}
                   {(colorsByFormat[f.id] || []).length === 0 ? <p className="text-sm text-slate-500">Sin colores en este formato.</p> : null}

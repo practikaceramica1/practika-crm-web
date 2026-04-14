@@ -74,6 +74,7 @@ function inferExtension(fileName: string, mimeType?: string | null) {
   if (mimeType.includes("png")) return "png";
   if (mimeType.includes("webp")) return "webp";
   if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return "jpg";
+  if (mimeType.includes("tif")) return "tif";
   return "bin";
 }
 
@@ -261,6 +262,11 @@ const deleteFormatSchema = z.object({
   formatMaterialId: z.string().uuid(),
 });
 
+const deleteArticleColorSchema = z.object({
+  seriesId: z.string().uuid(),
+  articleColorId: z.string().uuid(),
+});
+
 export async function updateFormatMaterialAction(formData: FormData) {
   await requireAdminUser();
   const supabase = await createClient();
@@ -440,6 +446,41 @@ export async function addColorsBulkAction(formData: FormData) {
   if (inserted.error) throw new Error(inserted.error.message);
 
   revalidatePath(`/admin/series/${parsed.data.seriesId}`);
+}
+
+export async function deleteArticleColorAction(formData: FormData) {
+  await requireAdminUser();
+  const supabase = await createClient();
+  const parsed = deleteArticleColorSchema.safeParse({
+    seriesId: formData.get("seriesId"),
+    articleColorId: formData.get("articleColorId"),
+  });
+  if (!parsed.success) throw new Error("Solicitud de borrado inválida");
+
+  const { seriesId, articleColorId } = parsed.data;
+
+  const { data: color, error: colorErr } = await supabase
+    .from("article_colors")
+    .select("id, format_material_id")
+    .eq("id", articleColorId)
+    .maybeSingle();
+  if (colorErr) throw new Error(colorErr.message);
+  if (!color) throw new Error("Color no encontrado");
+
+  const { data: fm, error: fmErr } = await supabase
+    .from("format_materials")
+    .select("id")
+    .eq("id", color.format_material_id)
+    .eq("series_id", seriesId)
+    .maybeSingle();
+  if (fmErr) throw new Error(fmErr.message);
+  if (!fm) throw new Error("Este color no pertenece a la serie indicada");
+
+  const del = await supabase.from("article_colors").delete().eq("id", articleColorId);
+  if (del.error) throw new Error(del.error.message);
+
+  revalidatePath(`/admin/series/${seriesId}`);
+  revalidatePath("/admin/formats");
 }
 
 export async function setSeriesFiltersAction(formData: FormData) {
