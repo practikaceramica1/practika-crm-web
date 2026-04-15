@@ -166,7 +166,7 @@ export function SeriesDocumentsManager({
           <p className="mt-1 text-sm text-slate-500">
             En cada sección puedes subir PDF o imagen (JPEG, PNG, WebP, TIFF, etc.). Nombres automáticos: serie + sección + numeración.
             Los PDF de panel y catálogo se suben directamente a R2 desde el navegador (sin límite de tamaño del servidor). Si falla el PUT,
-            revisa CORS del bucket R2 para el origen de este CRM.
+            revisa CORS del bucket R2 para el origen de este CRM. Las imágenes de más de ~10&nbsp;MB o TIFF/HEIC grandes van por el servidor (compresión) para respetar el límite de Cloudinary en subida directa; no hace falta CORS extra en Cloudinary.
           </p>
           <div className="mt-4 grid gap-3">
             <DocumentDropzoneForm

@@ -19,6 +19,31 @@ function readAmbientDirectThresholdBytes(): number {
   return Number.isFinite(n) && n >= 200_000 ? n : 2_800_000;
 }
 
+/**
+ * Tope de bytes que Cloudinary acepta en upload directo desde el navegador (plan free ≈ 10 MiB).
+ * Por encima hay que pasar por Server Action + `prepareAmbientImageForUpload` (reescala/JPEG).
+ * https://cloudinary.com/documentation/upload_images#uploading_assets
+ */
+function readCloudinaryDirectUploadMaxBytes(): number {
+  const raw = process.env.NEXT_PUBLIC_CLOUDINARY_MAX_DIRECT_UPLOAD_BYTES?.trim();
+  if (raw && /^\d+$/.test(raw)) {
+    const n = parseInt(raw, 10);
+    return Math.max(1_000_000, Math.min(n, 100 * 1024 * 1024));
+  }
+  return 10_000_000;
+}
+
+/** Subida firmada a Cloudinary manda el archivo tal cual: no usar si supera el tope del plan o conviene sharp (TIFF/HEIC grandes). */
+function ambientMustUseServerPipeline(file: File): boolean {
+  const maxDirect = readCloudinaryDirectUploadMaxBytes();
+  if (file.size > maxDirect) return true;
+  const n = file.name.toLowerCase();
+  if (n.endsWith(".tif") || n.endsWith(".tiff") || n.endsWith(".heic") || n.endsWith(".heif")) {
+    return file.size >= readAmbientDirectThresholdBytes();
+  }
+  return false;
+}
+
 function DocumentUploadSubmitButton({
   filesLength,
   beforeSubmit,
@@ -282,7 +307,7 @@ export function DocumentDropzoneForm({
         const threshold = readAmbientDirectThresholdBytes();
         for (const file of files) {
           let result: UploadSeriesDocumentsResult;
-          if (file.size >= threshold) {
+          if (file.size >= threshold && !ambientMustUseServerPipeline(file)) {
             result = await uploadOneAmbientViaCloudinary(file);
           } else {
             const fd = new FormData();
