@@ -9,6 +9,8 @@ import type {
   SignR2PdfUploadResult,
   UploadSeriesDocumentsResult,
 } from "@/app/admin/series/actions";
+import { FormPendingSection } from "./FormPendingSection";
+import { Snackbar } from "./Snackbar";
 
 const SERIES_DOCUMENTS_UPLOAD_API = "/api/admin/series/upload-documents";
 
@@ -18,16 +20,26 @@ async function postSeriesDocumentsUpload(formData: FormData): Promise<UploadSeri
     body: formData,
     credentials: "same-origin",
   });
-  const json = (await res.json()) as UploadSeriesDocumentsResult;
+  let json: UploadSeriesDocumentsResult;
+  try {
+    json = (await res.json()) as UploadSeriesDocumentsResult;
+  } catch {
+    const hint =
+      res.status === 504 || res.status === 502
+        ? " Suele indicar timeout en el servidor (archivos muy grandes o plan sin maxDuration suficiente)."
+        : "";
+    return { ok: false, message: `Respuesta no válida del servidor (HTTP ${res.status}).${hint}` };
+  }
   if (!res.ok) {
     return json && typeof json === "object" && "ok" in json && json.ok === false
       ? json
-      : { ok: false, message: `Error de red al subir (HTTP ${res.status}).` };
+      : {
+          ok: false,
+          message: `Error al subir (HTTP ${res.status}). Si es 504, el proceso superó el tiempo máximo en producción.`,
+        };
   }
   return json;
 }
-import { FormPendingSection } from "./FormPendingSection";
-import { Snackbar } from "./Snackbar";
 
 function readAmbientDirectThresholdBytes(): number {
   const raw = process.env.NEXT_PUBLIC_AMBIENT_DIRECT_UPLOAD_MIN_BYTES?.trim();
