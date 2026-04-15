@@ -23,7 +23,9 @@ import {
   toggleSeriesNewAction,
   updateFormatMaterialAction,
   registerSeriesAmbientAssetAction,
+  registerSeriesR2PdfAssetAction,
   signSeriesAmbientUploadAction,
+  signSeriesR2PdfUploadAction,
   uploadSeriesDocumentsAction,
 } from "../actions";
 
@@ -291,6 +293,8 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
           uploadAction={uploadSeriesDocumentsAction}
           ambientSignAction={signSeriesAmbientUploadAction}
           ambientRegisterAction={registerSeriesAmbientAssetAction}
+          pdfSignAction={signSeriesR2PdfUploadAction}
+          pdfRegisterAction={registerSeriesR2PdfAssetAction}
           renameAction={renameSeriesAssetAction}
           deleteAction={deleteSeriesAssetAction}
         />

@@ -29,6 +29,20 @@ type ProductLike = {
     technicalPanels: string[];
     catalogPdfs: string[];
   };
+  catalogFormats?: Array<{
+    formatLabel: string;
+    formatMaterialId: string;
+    materialSlug: string;
+    materialName: string;
+    widthCm: number;
+    heightCm: number;
+    articleColors: Array<{
+      id: string;
+      name: string;
+      slug: string;
+      variantType: "regular" | "decor" | "relieve" | "c3";
+    }>;
+  }>;
 };
 
 function normalizeKey(key: string) {
@@ -89,7 +103,9 @@ export async function GET() {
     ] = await Promise.all([
       supabase
         .from("format_materials")
-        .select("id,series_id,format_label,status,materials(name)")
+        .select(
+          "id,series_id,format_label,width_cm,height_cm,status,materials(name,slug,default_technical_properties)"
+        )
         .in("series_id", seriesIds)
         .eq("status", "published"),
       supabase
@@ -110,7 +126,7 @@ export async function GET() {
       formatIds.length > 0
         ? await supabase
             .from("article_colors")
-            .select("format_material_id,color_name,variant_type,status")
+            .select("id,format_material_id,color_name,color_slug,variant_type,status")
             .in("format_material_id", formatIds)
             .eq("status", "published")
         : { data: [], error: null };
@@ -235,6 +251,32 @@ export async function GET() {
         .map((a) => getAssetPublicUrl(a.storage_provider, a.file_key))
         .filter(Boolean);
 
+      const catalogFormats = seriesFormats.map((f) => {
+        const material = Array.isArray(f.materials) ? f.materials[0] : f.materials;
+        const formatColors = colorsByFormat.get(f.id) || [];
+        const articleColors = formatColors
+          .filter((c) => c.color_name)
+          .map((c) => ({
+            id: c.id,
+            name: c.color_name!,
+            slug: (c.color_slug || "").trim() || c.color_name!.toLowerCase().replace(/\s+/g, "-"),
+            variantType: (c.variant_type === "decor" ||
+            c.variant_type === "relieve" ||
+            c.variant_type === "c3"
+              ? c.variant_type
+              : "regular") as "regular" | "decor" | "relieve" | "c3",
+          }));
+        return {
+          formatLabel: f.format_label,
+          formatMaterialId: f.id,
+          materialSlug: material?.slug ?? "",
+          materialName: material?.name ?? "",
+          widthCm: Number(f.width_cm),
+          heightCm: Number(f.height_cm),
+          articleColors,
+        };
+      });
+
       const seriesFilters = seriesFiltersMap.get(s.id);
       return {
         id: s.id,
@@ -263,6 +305,7 @@ export async function GET() {
           technicalPanels.length > 0 || catalogPdfs.length > 0
             ? { technicalPanels, catalogPdfs }
             : undefined,
+        catalogFormats,
       };
     });
 

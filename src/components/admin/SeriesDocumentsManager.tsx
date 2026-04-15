@@ -2,7 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { Download, ExternalLink } from "lucide-react";
-import type { SignAmbientUploadResult, UploadSeriesDocumentsResult } from "@/app/admin/series/actions";
+import type {
+  SignAmbientUploadResult,
+  SignR2PdfUploadResult,
+  UploadSeriesDocumentsResult,
+} from "@/app/admin/series/actions";
 import { DocumentDropzoneForm } from "./DocumentDropzoneForm";
 import { Snackbar } from "./Snackbar";
 
@@ -66,6 +70,8 @@ export function SeriesDocumentsManager({
   uploadAction,
   ambientSignAction,
   ambientRegisterAction,
+  pdfSignAction,
+  pdfRegisterAction,
   renameAction,
   deleteAction,
 }: {
@@ -77,6 +83,9 @@ export function SeriesDocumentsManager({
   /** Subida firmada a Cloudinary desde el navegador (evita límite de body en producción). */
   ambientSignAction?: (formData: FormData) => Promise<SignAmbientUploadResult>;
   ambientRegisterAction?: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
+  /** Subida firmada a R2 (PDF panel/catálogo) desde el navegador. */
+  pdfSignAction?: (formData: FormData) => Promise<SignR2PdfUploadResult>;
+  pdfRegisterAction?: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
   renameAction: (formData: FormData) => Promise<{ asset: AssetRow }>;
   deleteAction: (formData: FormData) => Promise<{ assetId: string }>;
 }) {
@@ -156,6 +165,8 @@ export function SeriesDocumentsManager({
           <h2 className="text-lg font-semibold">Subidas directas</h2>
           <p className="mt-1 text-sm text-slate-500">
             En cada sección puedes subir PDF o imagen (JPEG, PNG, WebP, TIFF, etc.). Nombres automáticos: serie + sección + numeración.
+            Los PDF de panel y catálogo se suben directamente a R2 desde el navegador (sin límite de tamaño del servidor). Si falla el PUT,
+            revisa CORS del bucket R2 para el origen de este CRM.
           </p>
           <div className="mt-4 grid gap-3">
             <DocumentDropzoneForm
@@ -164,6 +175,8 @@ export function SeriesDocumentsManager({
               seriesId={seriesId}
               accept={SERIES_DOCUMENT_FILE_ACCEPT}
               action={uploadAction}
+              signPdfUpload={pdfSignAction}
+              registerPdfAsset={pdfRegisterAction}
               onUploaded={(newAssets) => {
                 upsertAssets(newAssets);
                 setSnackbar({ type: "success", message: "Panel técnico subido" });
@@ -175,6 +188,8 @@ export function SeriesDocumentsManager({
               seriesId={seriesId}
               accept={SERIES_DOCUMENT_FILE_ACCEPT}
               action={uploadAction}
+              signPdfUpload={pdfSignAction}
+              registerPdfAsset={pdfRegisterAction}
               onUploaded={(newAssets) => {
                 upsertAssets(newAssets);
                 setSnackbar({ type: "success", message: "Catálogo subido" });

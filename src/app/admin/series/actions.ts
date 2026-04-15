@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { errorToUserMessage } from "@/lib/errorMessage";
 import { slugify } from "@/lib/text";
 import { prepareAmbientImageForUpload } from "@/lib/uploads/prepareAmbientImage";
-import { copyObjectInR2, deleteObjectFromR2, uploadToR2 } from "@/lib/uploads/r2";
+import { copyObjectInR2, deleteObjectFromR2, signR2PutObjectUrl, uploadToR2 } from "@/lib/uploads/r2";
 import {
   deleteCloudinaryImage,
   renameCloudinaryImage,
@@ -80,6 +80,20 @@ export type SignAmbientUploadResult =
     }
   | { ok: false; message: string };
 
+/** Firma PUT a R2 para PDFs de panel/catálogo (evita límite de body en Server Actions y topes de Cloudinary en raw). */
+export type SignR2PdfUploadResult =
+  | {
+      ok: true;
+      putUrl: string;
+      fileKey: string;
+      assetTitle: string;
+      sortOrder: number;
+      languageCode: string;
+      assetType: "technical_panel" | "catalog_pdf";
+      contentType: string;
+    }
+  | { ok: false; message: string };
+
 /** En Node, entradas de FormData a veces no pasan `instanceof File`; aceptamos cualquier Blob con arrayBuffer. */
 function getFilePartsFromFormData(formData: FormData): File[] {
   const items = formData.getAll("files");
@@ -144,6 +158,14 @@ function isPdfUpload(ext: string, mime: string | null) {
 function isImageUpload(ext: string, mime: string | null) {
   if ((mime || "").toLowerCase().startsWith("image/")) return true;
   return IMAGE_FILE_EXTENSIONS.has(ext.toLowerCase());
+}
+
+function isExpectedR2SeriesPdfKey(seriesSlug: string, assetType: "technical_panel" | "catalog_pdf", fileKey: string) {
+  if (!fileKey || fileKey.includes("..")) return false;
+  const prefix = `series/${seriesSlug}/`;
+  if (!fileKey.startsWith(prefix)) return false;
+  const seg = assetType === "technical_panel" ? "paneles-tecnicos" : "catalogos";
+  return fileKey.startsWith(`${prefix}${seg}/`);
 }
 
 function buildPatternFileName(seriesSlug: string, assetType: DocAssetType, order: number, ext: string) {
@@ -698,6 +720,125 @@ export async function registerSeriesAmbientAssetAction(formData: FormData): Prom
 
     revalidatePath(`/admin/series/${seriesId}`);
     revalidatePath("/admin/formats");
+
+    return { ok: true, assets: (inserted.data ? [inserted.data] : []) as UploadedSeriesAssetRow[] };
+  } catch (e) {
+    return { ok: false, message: errorToUserMessage(e) };
+  }
+}
+
+export async function signSeriesR2PdfUploadAction(formData: FormData): Promise<SignR2PdfUploadResult> {
+  await requireAdminUser();
+  try {
+    const seriesIdParsed = z.string().uuid().safeParse(formData.get("seriesId"));
+    if (!seriesIdParsed.success) return { ok: false, message: "Serie no válida." };
+    const seriesId = seriesIdParsed.data;
+
+    const assetTypeParsed = z.enum(["technical_panel", "catalog_pdf"]).safeParse(formData.get("assetType"));
+    if (!assetTypeParsed.success) return { ok: false, message: "Tipo de documento no válido para subida directa." };
+    const assetType = assetTypeParsed.data;
+
+    const originalFileName = String(formData.get("originalFileName") || "").trim();
+    if (originalFileName.length < 2) return { ok: false, message: "Nombre de archivo no válido." };
+
+    const mimeHint = String(formData.get("mimeHint") || "").trim() || null;
+    const languageCode = String(formData.get("languageCode") || "es-en").trim() || "es-en";
+
+    const ext = inferExtension(originalFileName, mimeHint);
+    if (!isPdfUpload(ext, mimeHint)) {
+      return { ok: false, message: "La subida firmada a R2 solo aplica a archivos PDF." };
+    }
+
+    const supabase = await createClient();
+    const series = await supabase.from("series").select("slug").eq("id", seriesId).single();
+    if (!series.data?.slug) return { ok: false, message: "Serie no encontrada." };
+
+    const currentOrder = await supabase
+      .from("series_assets")
+      .select("sort_order")
+      .eq("series_id", seriesId)
+      .eq("asset_type", assetType)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (currentOrder.error) return { ok: false, message: errorToUserMessage(currentOrder.error) };
+
+    const lastOrder = Number(currentOrder.data?.sort_order || 0);
+    const sortOrder = lastOrder + 1;
+    const normalizedFileName = buildPatternFileName(series.data.slug, assetType, sortOrder, "pdf");
+    const key = `series/${series.data.slug}/${getAssetFolder(assetType)}/${normalizedFileName}`;
+    const contentType = mimeHint && mimeHint.toLowerCase().includes("pdf") ? mimeHint : "application/pdf";
+
+    const putUrl = await signR2PutObjectUrl(key, contentType);
+
+    return {
+      ok: true,
+      putUrl,
+      fileKey: key,
+      assetTitle: normalizedFileName,
+      sortOrder,
+      languageCode,
+      assetType,
+      contentType,
+    };
+  } catch (e) {
+    return { ok: false, message: errorToUserMessage(e) };
+  }
+}
+
+export async function registerSeriesR2PdfAssetAction(formData: FormData): Promise<UploadSeriesDocumentsResult> {
+  await requireAdminUser();
+  try {
+    const seriesIdParsed = z.string().uuid().safeParse(formData.get("seriesId"));
+    if (!seriesIdParsed.success) return { ok: false, message: "Serie no válida." };
+    const seriesId = seriesIdParsed.data;
+
+    const assetTypeParsed = z.enum(["technical_panel", "catalog_pdf"]).safeParse(formData.get("assetType"));
+    if (!assetTypeParsed.success) return { ok: false, message: "Tipo de documento no válido." };
+    const assetType = assetTypeParsed.data;
+
+    const fileKey = String(formData.get("fileKey") || "").trim();
+    const assetTitle = String(formData.get("assetTitle") || "").trim();
+    const sortOrderParsed = z.coerce.number().int().positive().safeParse(formData.get("sortOrder"));
+    if (!sortOrderParsed.success) return { ok: false, message: "Orden de archivo no válido." };
+
+    const languageCode = String(formData.get("languageCode") || "es-en").trim() || "es-en";
+    const mimeType = String(formData.get("mimeType") || "application/pdf").trim() || "application/pdf";
+
+    if (fileKey.length < 12 || assetTitle.length < 4) {
+      return { ok: false, message: "Datos de registro incompletos." };
+    }
+
+    const supabase = await createClient();
+    const series = await supabase.from("series").select("slug").eq("id", seriesId).single();
+    if (!series.data?.slug) return { ok: false, message: "Serie no encontrada." };
+
+    if (!isExpectedR2SeriesPdfKey(series.data.slug, assetType, fileKey)) {
+      return { ok: false, message: "La ruta del archivo no es válida para esta serie." };
+    }
+
+    if (!assetTitle.startsWith(`${series.data.slug}-`)) {
+      return { ok: false, message: "El título del archivo no coincide con la serie." };
+    }
+
+    const inserted = await supabase
+      .from("series_assets")
+      .insert({
+        series_id: seriesId,
+        asset_type: assetType,
+        storage_provider: "r2",
+        file_key: fileKey,
+        mime_type: mimeType,
+        language_code: languageCode,
+        title: assetTitle,
+        sort_order: sortOrderParsed.data,
+      })
+      .select("id,asset_type,title,file_key,storage_provider,sort_order")
+      .single();
+
+    if (inserted.error) return { ok: false, message: errorToUserMessage(inserted.error) };
+
+    revalidatePath(`/admin/series/${seriesId}`);
 
     return { ok: true, assets: (inserted.data ? [inserted.data] : []) as UploadedSeriesAssetRow[] };
   } catch (e) {

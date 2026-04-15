@@ -4,7 +4,11 @@ import type { FormEvent } from "react";
 import { FileUp, ImageIcon, Loader2, X } from "lucide-react";
 import { useFormStatus } from "react-dom";
 import { useRef, useState } from "react";
-import type { SignAmbientUploadResult, UploadSeriesDocumentsResult } from "@/app/admin/series/actions";
+import type {
+  SignAmbientUploadResult,
+  SignR2PdfUploadResult,
+  UploadSeriesDocumentsResult,
+} from "@/app/admin/series/actions";
 import { FormPendingSection } from "./FormPendingSection";
 import { Snackbar } from "./Snackbar";
 
@@ -48,6 +52,11 @@ function DocumentUploadSubmitButton({
 
 type DocType = "technical_panel" | "catalog_pdf" | "ambient_image";
 
+function fileIsPdf(file: File): boolean {
+  if (file.name.toLowerCase().endsWith(".pdf")) return true;
+  return (file.type || "").toLowerCase().includes("pdf");
+}
+
 function filterFilesByAccept(files: File[], accept: string): File[] {
   const tokens = accept.split(",").map((t) => t.trim()).filter(Boolean);
   if (!tokens.length) return files;
@@ -73,6 +82,8 @@ export function DocumentDropzoneForm({
   onUploaded,
   signAmbientUpload,
   registerAmbientAsset,
+  signPdfUpload,
+  registerPdfAsset,
 }: {
   title: string;
   type: DocType;
@@ -83,6 +94,9 @@ export function DocumentDropzoneForm({
   /** Si están definidos, los ambientes ≥ umbral se suben del navegador a Cloudinary (recomendado en Vercel). */
   signAmbientUpload?: (formData: FormData) => Promise<SignAmbientUploadResult>;
   registerAmbientAsset?: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
+  /** PDF de panel/catálogo: subida firmada a R2 (evita límite de body en Server Actions). */
+  signPdfUpload?: (formData: FormData) => Promise<SignR2PdfUploadResult>;
+  registerPdfAsset?: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
 }) {
   const [files, setFiles] = useState<File[]>([]);
   const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -94,6 +108,11 @@ export function DocumentDropzoneForm({
 
   const useAmbientDirect =
     type === "ambient_image" && typeof signAmbientUpload === "function" && typeof registerAmbientAsset === "function";
+
+  const usePdfDirect =
+    (type === "technical_panel" || type === "catalog_pdf") &&
+    typeof signPdfUpload === "function" &&
+    typeof registerPdfAsset === "function";
 
   const handlePickFiles = (list: FileList | null) => {
     const picked = Array.from(list || []);
@@ -174,6 +193,58 @@ export function DocumentDropzoneForm({
     return register(regFd);
   }
 
+  async function uploadOnePdfViaR2(file: File): Promise<UploadSeriesDocumentsResult> {
+    const sign = signPdfUpload!;
+    const register = registerPdfAsset!;
+
+    const sfd = new FormData();
+    sfd.set("seriesId", seriesId);
+    sfd.set("assetType", type);
+    sfd.set("originalFileName", file.name);
+    sfd.set("mimeHint", file.type || "");
+    sfd.set("languageCode", languageCode);
+
+    const signed = await sign(sfd);
+    if (!signed.ok) {
+      return { ok: false, message: signed.message };
+    }
+
+    const res = await fetch(signed.putUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": signed.contentType,
+      },
+      body: file,
+    });
+
+    if (!res.ok) {
+      const hint =
+        res.status === 0 || res.status === 403
+          ? " Comprueba CORS del bucket R2 (origen del CRM, método PUT, cabecera Content-Type)."
+          : "";
+      let detail = "";
+      try {
+        detail = (await res.text()).slice(0, 240);
+      } catch {
+        /* ignore */
+      }
+      return {
+        ok: false,
+        message: `No se pudo subir el PDF a almacenamiento (HTTP ${res.status}).${hint}${detail ? ` ${detail}` : ""}`,
+      };
+    }
+
+    const regFd = new FormData();
+    regFd.set("seriesId", seriesId);
+    regFd.set("fileKey", signed.fileKey);
+    regFd.set("assetTitle", signed.assetTitle);
+    regFd.set("sortOrder", String(signed.sortOrder));
+    regFd.set("languageCode", signed.languageCode);
+    regFd.set("assetType", signed.assetType);
+    regFd.set("mimeType", signed.contentType);
+    return register(regFd);
+  }
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     syncQueuedFilesToInput();
@@ -197,6 +268,25 @@ export function DocumentDropzoneForm({
           let result: UploadSeriesDocumentsResult;
           if (file.size >= threshold) {
             result = await uploadOneAmbientViaCloudinary(file);
+          } else {
+            const fd = new FormData();
+            fd.set("seriesId", seriesId);
+            fd.set("assetType", type);
+            fd.set("languageCode", languageCode);
+            fd.append("files", file);
+            result = await action(fd);
+          }
+          if (!result.ok) {
+            setSnackbar({ type: "error", message: result.message });
+            return;
+          }
+          collected.push(...result.assets);
+        }
+      } else if (usePdfDirect) {
+        for (const file of files) {
+          let result: UploadSeriesDocumentsResult;
+          if (fileIsPdf(file)) {
+            result = await uploadOnePdfViaR2(file);
           } else {
             const fd = new FormData();
             fd.set("seriesId", seriesId);
