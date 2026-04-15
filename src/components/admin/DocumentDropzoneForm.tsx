@@ -209,18 +209,34 @@ export function DocumentDropzoneForm({
       return { ok: false, message: signed.message };
     }
 
-    const res = await fetch(signed.putUrl, {
-      method: "PUT",
-      headers: {
-        "Content-Type": signed.contentType,
-      },
-      body: file,
-    });
+    let res: Response;
+    try {
+      res = await fetch(signed.putUrl, {
+        method: "PUT",
+        mode: "cors",
+        credentials: "omit",
+        cache: "no-store",
+        headers: {
+          "Content-Type": signed.contentType,
+        },
+        body: file,
+      });
+    } catch (err) {
+      const isNetwork =
+        err instanceof TypeError &&
+        (err.message === "Failed to fetch" || err.message.toLowerCase().includes("network"));
+      return {
+        ok: false,
+        message: isNetwork
+          ? "El navegador bloqueó la subida (CORS o red). En Cloudflare R2 → bucket → CORS: AllowedOrigins = origen exacto del CRM; AllowedMethods solo GET, PUT, HEAD y/o DELETE (no OPTIONS — R2 no lo admite en la política). AllowedHeaders: Content-Type o *. Ver https://developers.cloudflare.com/r2/buckets/cors/"
+          : `Error de red al subir el PDF: ${err instanceof Error ? err.message : "desconocido"}`,
+      };
+    }
 
     if (!res.ok) {
       const hint =
-        res.status === 0 || res.status === 403
-          ? " Comprueba CORS del bucket R2 (origen del CRM, método PUT, cabecera Content-Type)."
+        res.status === 403
+          ? " 403 suele ser firma incompleta (recarga y vuelve a intentar) o política del bucket. Revisa CORS (sin OPTIONS en AllowedMethods en R2)."
           : "";
       let detail = "";
       try {

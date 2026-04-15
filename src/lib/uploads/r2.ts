@@ -21,6 +21,20 @@ function getR2Client() {
   });
 }
 
+/**
+ * Cliente solo para URLs firmadas: evita que el middleware de checksums añada
+ * `x-amz-checksum-*` a la firma (el navegador no los envía en `fetch`) → 403 en R2/S3.
+ */
+function getR2ClientForPresignedPut() {
+  const { endpoint, accessKeyId, secretAccessKey } = getR2Config();
+  return new S3Client({
+    region: "auto",
+    endpoint,
+    credentials: { accessKeyId, secretAccessKey },
+    requestChecksumCalculation: "WHEN_REQUIRED",
+  });
+}
+
 export async function uploadToR2(key: string, body: Buffer, contentType: string) {
   const { bucket } = getR2Config();
   const client = getR2Client();
@@ -60,11 +74,16 @@ export async function deleteObjectFromR2(key: string) {
 /**
  * URL firmada para subir el binario desde el navegador (PUT), sin pasar por el body del Server Action.
  * El cliente debe enviar el mismo `Content-Type` en la petición PUT que el usado al firmar.
- * Configura CORS en el bucket R2 para el origen del CRM (métodos PUT, HEAD; cabecera Content-Type).
+ *
+ * CORS en R2 (Cloudflare → bucket → CORS): `AllowedOrigins` debe coincidir exactamente con el origen
+ * del CRM (esquema + host, sin path). En R2 solo son válidos en `AllowedMethods`: GET, PUT, HEAD, DELETE
+ * (no incluyas OPTIONS: el panel lo rechaza y no hace falta; el preflight lo resuelve R2).
+ * `AllowedHeaders`: p. ej. ["Content-Type"] o ["*"]. `ExposeHeaders`: opcional ["ETag"].
+ * https://developers.cloudflare.com/r2/buckets/cors/
  */
 export async function signR2PutObjectUrl(key: string, contentType: string, expiresInSeconds = 900) {
   const { bucket } = getR2Config();
-  const client = getR2Client();
+  const client = getR2ClientForPresignedPut();
   const command = new PutObjectCommand({
     Bucket: bucket,
     Key: key,
