@@ -67,7 +67,6 @@ export function SeriesDocumentsManager({
   r2BaseUrl,
   cloudinaryCloudName,
   initialAssets,
-  uploadAction,
   ambientSignAction,
   ambientRegisterAction,
   pdfSignAction,
@@ -79,7 +78,6 @@ export function SeriesDocumentsManager({
   r2BaseUrl: string;
   cloudinaryCloudName: string;
   initialAssets: AssetRow[];
-  uploadAction: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
   /** Subida firmada a Cloudinary desde el navegador (evita límite de body en producción). */
   ambientSignAction?: (formData: FormData) => Promise<SignAmbientUploadResult>;
   ambientRegisterAction?: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
@@ -174,7 +172,6 @@ export function SeriesDocumentsManager({
               type="technical_panel"
               seriesId={seriesId}
               accept={SERIES_DOCUMENT_FILE_ACCEPT}
-              action={uploadAction}
               signPdfUpload={pdfSignAction}
               registerPdfAsset={pdfRegisterAction}
               onUploaded={(newAssets) => {
@@ -187,7 +184,6 @@ export function SeriesDocumentsManager({
               type="catalog_pdf"
               seriesId={seriesId}
               accept={SERIES_DOCUMENT_FILE_ACCEPT}
-              action={uploadAction}
               signPdfUpload={pdfSignAction}
               registerPdfAsset={pdfRegisterAction}
               onUploaded={(newAssets) => {
@@ -200,7 +196,6 @@ export function SeriesDocumentsManager({
               type="ambient_image"
               seriesId={seriesId}
               accept={SERIES_DOCUMENT_FILE_ACCEPT}
-              action={uploadAction}
               signAmbientUpload={ambientSignAction}
               registerAmbientAsset={ambientRegisterAction}
               onUploaded={(newAssets) => {

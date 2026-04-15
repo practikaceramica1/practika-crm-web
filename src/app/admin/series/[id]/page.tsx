@@ -26,7 +26,6 @@ import {
   registerSeriesR2PdfAssetAction,
   signSeriesAmbientUploadAction,
   signSeriesR2PdfUploadAction,
-  uploadSeriesDocumentsAction,
 } from "../actions";
 
 /** Subidas grandes (p. ej. TIFF) por Server Action en esta ruta. En Vercel depende del plan. */
@@ -290,7 +289,6 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
             storage_provider: string;
             sort_order?: number | null;
           }>).map((a) => ({ ...a, publicUrl: getAssetPublicUrl(a.storage_provider, a.file_key) }))}
-          uploadAction={uploadSeriesDocumentsAction}
           ambientSignAction={signSeriesAmbientUploadAction}
           ambientRegisterAction={registerSeriesAmbientAssetAction}
           pdfSignAction={signSeriesR2PdfUploadAction}

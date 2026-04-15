@@ -9,6 +9,23 @@ import type {
   SignR2PdfUploadResult,
   UploadSeriesDocumentsResult,
 } from "@/app/admin/series/actions";
+
+const SERIES_DOCUMENTS_UPLOAD_API = "/api/admin/series/upload-documents";
+
+async function postSeriesDocumentsUpload(formData: FormData): Promise<UploadSeriesDocumentsResult> {
+  const res = await fetch(SERIES_DOCUMENTS_UPLOAD_API, {
+    method: "POST",
+    body: formData,
+    credentials: "same-origin",
+  });
+  const json = (await res.json()) as UploadSeriesDocumentsResult;
+  if (!res.ok) {
+    return json && typeof json === "object" && "ok" in json && json.ok === false
+      ? json
+      : { ok: false, message: `Error de red al subir (HTTP ${res.status}).` };
+  }
+  return json;
+}
 import { FormPendingSection } from "./FormPendingSection";
 import { Snackbar } from "./Snackbar";
 
@@ -103,7 +120,6 @@ export function DocumentDropzoneForm({
   type,
   seriesId,
   accept,
-  action,
   onUploaded,
   signAmbientUpload,
   registerAmbientAsset,
@@ -114,7 +130,6 @@ export function DocumentDropzoneForm({
   type: DocType;
   seriesId: string;
   accept: string;
-  action: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
   onUploaded?: (assets: Array<{ id: string; asset_type: DocType; title: string | null; file_key: string; storage_provider: string; sort_order?: number | null }>) => void;
   /** Si están definidos, los ambientes ≥ umbral se suben del navegador a Cloudinary (recomendado en Vercel). */
   signAmbientUpload?: (formData: FormData) => Promise<SignAmbientUploadResult>;
@@ -315,7 +330,7 @@ export function DocumentDropzoneForm({
             fd.set("assetType", type);
             fd.set("languageCode", languageCode);
             fd.append("files", file);
-            result = await action(fd);
+            result = await postSeriesDocumentsUpload(fd);
           }
           if (!result.ok) {
             setSnackbar({ type: "error", message: result.message });
@@ -334,7 +349,7 @@ export function DocumentDropzoneForm({
             fd.set("assetType", type);
             fd.set("languageCode", languageCode);
             fd.append("files", file);
-            result = await action(fd);
+            result = await postSeriesDocumentsUpload(fd);
           }
           if (!result.ok) {
             setSnackbar({ type: "error", message: result.message });
@@ -348,7 +363,7 @@ export function DocumentDropzoneForm({
         fd.set("assetType", type);
         fd.set("languageCode", languageCode);
         files.forEach((f) => fd.append("files", f));
-        const result = await action(fd);
+        const result = await postSeriesDocumentsUpload(fd);
         if (!result.ok) {
           setSnackbar({ type: "error", message: result.message });
           return;
