@@ -11,6 +11,23 @@ function maxBytesForCloudinary(): number {
   return 9_400_000;
 }
 
+/**
+ * TIFF/HEIC suelen ir en CMYK, 16 bits o compresiones raras; Cloudinary puede responder 400
+ * si se suben tal cual. Siempre los pasamos por Sharp → JPEG web-safe.
+ */
+function needsRasterWebNormalize(ext: string, mime: string | null): boolean {
+  const e = ext.toLowerCase();
+  if (["tif", "tiff", "heic", "heif", "psb"].includes(e)) return true;
+  const m = (mime || "").toLowerCase();
+  return (
+    m.includes("tiff") ||
+    m.includes("heif") ||
+    m.includes("heic") ||
+    m.includes("photoshop") ||
+    m.includes("x-adobe")
+  );
+}
+
 export type PreparedAmbientImage = {
   buffer: Buffer;
   extension: string;
@@ -20,8 +37,8 @@ export type PreparedAmbientImage = {
 };
 
 /**
- * Si el buffer supera el tope (plan Cloudinary), reescala y convierte a JPEG
- * hasta que quepa. Si ya es pequeño, devuelve el mismo buffer.
+ * Si el buffer supera el tope (plan Cloudinary), o es TIFF/HEIC/PSB, reescala y convierte a JPEG
+ * hasta que quepa en el límite. Así evitamos 400 de Cloudinary y archivos demasiado grandes.
  */
 export async function prepareAmbientImageForUpload(
   input: Buffer,
@@ -29,7 +46,8 @@ export async function prepareAmbientImageForUpload(
   passThroughMime: string | null
 ): Promise<PreparedAmbientImage> {
   const limit = maxBytesForCloudinary();
-  if (input.length <= limit) {
+  const normalize = needsRasterWebNormalize(passThroughExt, passThroughMime);
+  if (!normalize && input.length <= limit) {
     return {
       buffer: input,
       extension: passThroughExt,
@@ -43,7 +61,7 @@ export async function prepareAmbientImageForUpload(
     const w = meta.width || 4000;
     const h = meta.height || 4000;
     let maxEdge = Math.min(Math.max(w, h), 8192);
-    let quality = 88;
+    let quality = normalize ? 90 : 88;
 
     for (let round = 0; round < 28; round += 1) {
       const buf = await sharp(input)

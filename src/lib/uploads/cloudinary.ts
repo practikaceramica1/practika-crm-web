@@ -55,7 +55,13 @@ export async function uploadImageToCloudinary(buffer: Buffer, folder: string, pu
 
   return new Promise<{ publicId: string }>((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { folder, public_id: publicId, resource_type: "image", overwrite: true },
+      {
+        folder,
+        public_id: publicId,
+        /** "auto" tolera mejor formatos raros; el buffer ya viene preparado (JPEG) para TIFF/HEIC. */
+        resource_type: "auto",
+        overwrite: true,
+      },
       (error, result) => {
         if (error || !result) {
           const msg = error ? errorToUserMessage(error) : "Respuesta vacía de Cloudinary";
