@@ -1,4 +1,10 @@
-import { CopyObjectCommand, DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  CopyObjectCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 function getR2Config() {
@@ -69,6 +75,26 @@ export async function deleteObjectFromR2(key: string) {
       Key: key,
     })
   );
+}
+
+export async function getObjectBufferFromR2(key: string): Promise<{ buffer: Buffer; contentType?: string }> {
+  const { bucket } = getR2Config();
+  const client = getR2Client();
+  const out = await client.send(
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    })
+  );
+  const body = out.Body;
+  if (!body) {
+    throw new Error("Objeto vacío en R2");
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of body as AsyncIterable<Uint8Array>) {
+    chunks.push(Buffer.from(chunk));
+  }
+  return { buffer: Buffer.concat(chunks), contentType: out.ContentType || undefined };
 }
 
 /**

@@ -23,7 +23,9 @@ import {
   toggleSeriesNewAction,
   updateFormatMaterialAction,
   registerSeriesAmbientAssetAction,
+  registerSeriesAmbientFromR2StagingAction,
   registerSeriesR2PdfAssetAction,
+  signSeriesAmbientR2StagingUploadAction,
   signSeriesAmbientUploadAction,
   signSeriesR2PdfUploadAction,
 } from "../actions";
@@ -291,6 +293,8 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
           }>).map((a) => ({ ...a, publicUrl: getAssetPublicUrl(a.storage_provider, a.file_key) }))}
           ambientSignAction={signSeriesAmbientUploadAction}
           ambientRegisterAction={registerSeriesAmbientAssetAction}
+          ambientR2StagingSignAction={signSeriesAmbientR2StagingUploadAction}
+          ambientR2StagingRegisterAction={registerSeriesAmbientFromR2StagingAction}
           pdfSignAction={signSeriesR2PdfUploadAction}
           pdfRegisterAction={registerSeriesR2PdfAssetAction}
           renameAction={renameSeriesAssetAction}

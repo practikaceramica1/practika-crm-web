@@ -6,6 +6,7 @@ import { useFormStatus } from "react-dom";
 import { useRef, useState } from "react";
 import type {
   SignAmbientUploadResult,
+  SignR2AmbientStagingUploadResult,
   SignR2PdfUploadResult,
   UploadSeriesDocumentsResult,
 } from "@/app/admin/series/actions";
@@ -13,6 +14,9 @@ import { FormPendingSection } from "./FormPendingSection";
 import { Snackbar } from "./Snackbar";
 
 const SERIES_DOCUMENTS_UPLOAD_API = "/api/admin/series/upload-documents";
+
+/** Vercel Functions: https://vercel.com/docs/functions/limitations#request-body-size */
+const VERCEL_SERVERLESS_BODY_LIMIT_BYTES = 4_500_000;
 
 async function postSeriesDocumentsUpload(formData: FormData): Promise<UploadSeriesDocumentsResult> {
   const res = await fetch(SERIES_DOCUMENTS_UPLOAD_API, {
@@ -31,6 +35,13 @@ async function postSeriesDocumentsUpload(formData: FormData): Promise<UploadSeri
     return { ok: false, message: `Respuesta no válida del servidor (HTTP ${res.status}).${hint}` };
   }
   if (!res.ok) {
+    if (res.status === 413) {
+      return {
+        ok: false,
+        message:
+          "El servidor rechazó el cuerpo de la petición (413). En Vercel el POST a la función está limitado a ~4.5 MB: para TIFF/imágenes grandes hace falta la subida directa a R2 (staging) con R2 configurado.",
+      };
+    }
     return json && typeof json === "object" && "ok" in json && json.ok === false
       ? json
       : {
@@ -135,6 +146,8 @@ export function DocumentDropzoneForm({
   onUploaded,
   signAmbientUpload,
   registerAmbientAsset,
+  signAmbientR2StagingUpload,
+  registerAmbientR2StagingAsset,
   signPdfUpload,
   registerPdfAsset,
 }: {
@@ -146,6 +159,9 @@ export function DocumentDropzoneForm({
   /** Si están definidos, los ambientes ≥ umbral se suben del navegador a Cloudinary (recomendado en Vercel). */
   signAmbientUpload?: (formData: FormData) => Promise<SignAmbientUploadResult>;
   registerAmbientAsset?: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
+  /** Ambientes que van por servidor (TIFF grande, etc.): PUT a R2 temporal + registro (evita POST >4.5 MB en Vercel). */
+  signAmbientR2StagingUpload?: (formData: FormData) => Promise<SignR2AmbientStagingUploadResult>;
+  registerAmbientR2StagingAsset?: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
   /** PDF de panel/catálogo: subida firmada a R2 (evita límite de body en Server Actions). */
   signPdfUpload?: (formData: FormData) => Promise<SignR2PdfUploadResult>;
   registerPdfAsset?: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
@@ -160,6 +176,11 @@ export function DocumentDropzoneForm({
 
   const useAmbientDirect =
     type === "ambient_image" && typeof signAmbientUpload === "function" && typeof registerAmbientAsset === "function";
+
+  const useAmbientR2Staging =
+    type === "ambient_image" &&
+    typeof signAmbientR2StagingUpload === "function" &&
+    typeof registerAmbientR2StagingAsset === "function";
 
   const usePdfDirect =
     (type === "technical_panel" || type === "catalog_pdf") &&
@@ -242,6 +263,71 @@ export function DocumentDropzoneForm({
     regFd.set("sortOrder", String(signed.sortOrder));
     regFd.set("languageCode", signed.languageCode);
     regFd.set("mimeType", mime);
+    return register(regFd);
+  }
+
+  async function uploadOneAmbientViaR2Staging(file: File): Promise<UploadSeriesDocumentsResult> {
+    const sign = signAmbientR2StagingUpload!;
+    const register = registerAmbientR2StagingAsset!;
+
+    const sfd = new FormData();
+    sfd.set("seriesId", seriesId);
+    sfd.set("originalFileName", file.name);
+    sfd.set("mimeHint", file.type || "");
+    sfd.set("languageCode", languageCode);
+
+    const signed = await sign(sfd);
+    if (!signed.ok) {
+      return { ok: false, message: signed.message };
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(signed.putUrl, {
+        method: "PUT",
+        mode: "cors",
+        credentials: "omit",
+        cache: "no-store",
+        headers: {
+          "Content-Type": signed.contentType,
+        },
+        body: file,
+      });
+    } catch (err) {
+      const isNetwork =
+        err instanceof TypeError &&
+        (err.message === "Failed to fetch" || err.message.toLowerCase().includes("network"));
+      return {
+        ok: false,
+        message: isNetwork
+          ? "El navegador bloqueó la subida a R2 (CORS o red). Revisa CORS del bucket para el origen del CRM (PUT, Content-Type). Ver https://developers.cloudflare.com/r2/buckets/cors/"
+          : `Error de red al subir la imagen a almacenamiento: ${err instanceof Error ? err.message : "desconocido"}`,
+      };
+    }
+
+    if (!res.ok) {
+      const hint =
+        res.status === 403
+          ? " 403 suele ser firma incompleta o política del bucket. Revisa CORS en R2."
+          : "";
+      let detail = "";
+      try {
+        detail = (await res.text()).slice(0, 240);
+      } catch {
+        /* ignore */
+      }
+      return {
+        ok: false,
+        message: `No se pudo subir la imagen temporal a R2 (HTTP ${res.status}).${hint}${detail ? ` ${detail}` : ""}`,
+      };
+    }
+
+    const regFd = new FormData();
+    regFd.set("seriesId", seriesId);
+    regFd.set("fileKey", signed.fileKey);
+    regFd.set("sortOrder", String(signed.sortOrder));
+    regFd.set("languageCode", signed.languageCode);
+    regFd.set("mimeHint", file.type || "");
     return register(regFd);
   }
 
@@ -336,7 +422,21 @@ export function DocumentDropzoneForm({
           let result: UploadSeriesDocumentsResult;
           if (file.size >= threshold && !ambientMustUseServerPipeline(file)) {
             result = await uploadOneAmbientViaCloudinary(file);
+          } else if (useAmbientR2Staging && ambientMustUseServerPipeline(file)) {
+            result = await uploadOneAmbientViaR2Staging(file);
           } else {
+            if (
+              ambientMustUseServerPipeline(file) &&
+              !useAmbientR2Staging &&
+              file.size > VERCEL_SERVERLESS_BODY_LIMIT_BYTES
+            ) {
+              setSnackbar({
+                type: "error",
+                message:
+                  "Este archivo supera el límite de ~4.5 MB para subidas por API en Vercel (413). Configura R2 (mismas variables que los PDF) para poder subir TIFF/imágenes grandes: el binario va directo al bucket y el servidor solo procesa y registra.",
+              });
+              return;
+            }
             const fd = new FormData();
             fd.set("seriesId", seriesId);
             fd.set("assetType", type);

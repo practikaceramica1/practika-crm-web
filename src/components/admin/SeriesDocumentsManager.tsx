@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Download, ExternalLink } from "lucide-react";
 import type {
   SignAmbientUploadResult,
+  SignR2AmbientStagingUploadResult,
   SignR2PdfUploadResult,
   UploadSeriesDocumentsResult,
 } from "@/app/admin/series/actions";
@@ -69,6 +70,8 @@ export function SeriesDocumentsManager({
   initialAssets,
   ambientSignAction,
   ambientRegisterAction,
+  ambientR2StagingSignAction,
+  ambientR2StagingRegisterAction,
   pdfSignAction,
   pdfRegisterAction,
   renameAction,
@@ -81,6 +84,9 @@ export function SeriesDocumentsManager({
   /** Subida firmada a Cloudinary desde el navegador (evita límite de body en producción). */
   ambientSignAction?: (formData: FormData) => Promise<SignAmbientUploadResult>;
   ambientRegisterAction?: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
+  /** R2 temporal + registro para ambientes que no pueden ir en el POST (~4.5 MB en Vercel). */
+  ambientR2StagingSignAction?: (formData: FormData) => Promise<SignR2AmbientStagingUploadResult>;
+  ambientR2StagingRegisterAction?: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
   /** Subida firmada a R2 (PDF panel/catálogo) desde el navegador. */
   pdfSignAction?: (formData: FormData) => Promise<SignR2PdfUploadResult>;
   pdfRegisterAction?: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
@@ -164,7 +170,7 @@ export function SeriesDocumentsManager({
           <p className="mt-1 text-sm text-slate-500">
             En cada sección puedes subir PDF o imagen (JPEG, PNG, WebP, TIFF, etc.). Nombres automáticos: serie + sección + numeración.
             Los PDF de panel y catálogo se suben directamente a R2 desde el navegador (sin límite de tamaño del servidor). Si falla el PUT,
-            revisa CORS del bucket R2 para el origen de este CRM. Las imágenes de más de ~10&nbsp;MB o TIFF/HEIC grandes van por el servidor (compresión) para respetar el límite de Cloudinary en subida directa; no hace falta CORS extra en Cloudinary.
+            revisa CORS del bucket R2 para el origen de este CRM. Las imágenes de más de ~10&nbsp;MB o TIFF/HEIC grandes van por el servidor (compresión) para respetar el límite de Cloudinary en subida directa; en Vercel el POST al API no puede superar ~4.5&nbsp;MB, así que esos casos usan también un PUT temporal a R2 (mismo bucket) y luego el servidor sube a Cloudinary.
           </p>
           <div className="mt-4 grid gap-3">
             <DocumentDropzoneForm
@@ -198,6 +204,8 @@ export function SeriesDocumentsManager({
               accept={SERIES_DOCUMENT_FILE_ACCEPT}
               signAmbientUpload={ambientSignAction}
               registerAmbientAsset={ambientRegisterAction}
+              signAmbientR2StagingUpload={ambientR2StagingSignAction}
+              registerAmbientR2StagingAsset={ambientR2StagingRegisterAction}
               onUploaded={(newAssets) => {
                 upsertAssets(newAssets);
                 setSnackbar({ type: "success", message: "Ambientes subidos" });

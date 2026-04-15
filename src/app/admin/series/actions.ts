@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -8,7 +9,13 @@ import { createClient } from "@/lib/supabase/server";
 import { errorToUserMessage } from "@/lib/errorMessage";
 import { slugify } from "@/lib/text";
 import { prepareAmbientImageForUpload } from "@/lib/uploads/prepareAmbientImage";
-import { copyObjectInR2, deleteObjectFromR2, signR2PutObjectUrl, uploadToR2 } from "@/lib/uploads/r2";
+import {
+  copyObjectInR2,
+  deleteObjectFromR2,
+  getObjectBufferFromR2,
+  signR2PutObjectUrl,
+  uploadToR2,
+} from "@/lib/uploads/r2";
 import {
   deleteCloudinaryImage,
   renameCloudinaryImage,
@@ -94,6 +101,14 @@ export type SignR2PdfUploadResult =
     }
   | { ok: false; message: string };
 
+/**
+ * PUT a R2 en ruta temporal (sin binario en el POST a Next/Vercel).
+ * Vercel limita el cuerpo de la función a 4.5 MB → los TIFF grandes fallan con 413 si van por `/api/.../upload-documents`.
+ */
+export type SignR2AmbientStagingUploadResult =
+  | { ok: true; putUrl: string; fileKey: string; sortOrder: number; languageCode: string; contentType: string }
+  | { ok: false; message: string };
+
 /** En Node, entradas de FormData a veces no pasan `instanceof File`; aceptamos cualquier Blob con arrayBuffer. */
 function getFilePartsFromFormData(formData: FormData): File[] {
   const items = formData.getAll("files");
@@ -166,6 +181,34 @@ function isExpectedR2SeriesPdfKey(seriesSlug: string, assetType: "technical_pane
   if (!fileKey.startsWith(prefix)) return false;
   const seg = assetType === "technical_panel" ? "paneles-tecnicos" : "catalogos";
   return fileKey.startsWith(`${prefix}${seg}/`);
+}
+
+function isExpectedR2SeriesAmbientStagingKey(seriesSlug: string, fileKey: string) {
+  if (!fileKey || fileKey.includes("..")) return false;
+  const prefix = `series/${seriesSlug}/ambientes/_staging/`;
+  if (!fileKey.startsWith(prefix)) return false;
+  const rest = fileKey.slice(prefix.length);
+  if (!rest || rest.includes("/")) return false;
+  const dot = rest.lastIndexOf(".");
+  if (dot < 1) return false;
+  const idPart = rest.slice(0, dot);
+  return z.string().uuid().safeParse(idPart).success;
+}
+
+function pickAmbientStagingPutContentType(mimeHint: string | null, ext: string): string {
+  const raw = (mimeHint || "").trim();
+  const m = raw.toLowerCase();
+  if (m.startsWith("image/")) return raw;
+  const e = ext.toLowerCase();
+  if (e === "tif" || e === "tiff") return "image/tiff";
+  if (e === "jpg" || e === "jpeg" || e === "jpe") return "image/jpeg";
+  if (e === "png") return "image/png";
+  if (e === "webp") return "image/webp";
+  if (e === "gif") return "image/gif";
+  if (e === "heic" || e === "heif") return "image/heic";
+  if (e === "bmp") return "image/bmp";
+  if (e === "avif") return "image/avif";
+  return "application/octet-stream";
 }
 
 function buildPatternFileName(seriesSlug: string, assetType: DocAssetType, order: number, ext: string) {
@@ -842,6 +885,146 @@ export async function registerSeriesR2PdfAssetAction(formData: FormData): Promis
 
     return { ok: true, assets: (inserted.data ? [inserted.data] : []) as UploadedSeriesAssetRow[] };
   } catch (e) {
+    return { ok: false, message: errorToUserMessage(e) };
+  }
+}
+
+export async function signSeriesAmbientR2StagingUploadAction(
+  formData: FormData
+): Promise<SignR2AmbientStagingUploadResult> {
+  await requireAdminUser();
+  try {
+    const seriesIdParsed = z.string().uuid().safeParse(formData.get("seriesId"));
+    if (!seriesIdParsed.success) return { ok: false, message: "Serie no válida." };
+    const seriesId = seriesIdParsed.data;
+
+    const originalFileName = String(formData.get("originalFileName") || "").trim();
+    if (originalFileName.length < 2) return { ok: false, message: "Nombre de archivo no válido." };
+
+    const mimeHint = String(formData.get("mimeHint") || "").trim() || null;
+    const languageCode = String(formData.get("languageCode") || "na").trim() || "na";
+
+    const ext = inferExtension(originalFileName, mimeHint);
+    if (!isImageUpload(ext, mimeHint)) {
+      return { ok: false, message: "La subida temporal a R2 solo aplica a imágenes." };
+    }
+
+    const supabase = await createClient();
+    const series = await supabase.from("series").select("slug").eq("id", seriesId).single();
+    if (!series.data?.slug) return { ok: false, message: "Serie no encontrada." };
+
+    const currentOrder = await supabase
+      .from("series_assets")
+      .select("sort_order")
+      .eq("series_id", seriesId)
+      .eq("asset_type", "ambient_image")
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (currentOrder.error) return { ok: false, message: errorToUserMessage(currentOrder.error) };
+
+    const lastOrder = Number(currentOrder.data?.sort_order || 0);
+    const sortOrder = lastOrder + 1;
+
+    const stagingId = randomUUID();
+    const key = `series/${series.data.slug}/ambientes/_staging/${stagingId}.${ext}`;
+    const contentType = pickAmbientStagingPutContentType(mimeHint, ext);
+    const putUrl = await signR2PutObjectUrl(key, contentType);
+
+    return { ok: true, putUrl, fileKey: key, sortOrder, languageCode, contentType };
+  } catch (e) {
+    return { ok: false, message: errorToUserMessage(e) };
+  }
+}
+
+export async function registerSeriesAmbientFromR2StagingAction(
+  formData: FormData
+): Promise<UploadSeriesDocumentsResult> {
+  await requireAdminUser();
+  const fileKey = String(formData.get("fileKey") || "").trim();
+  let cloudinaryPublicId: string | null = null;
+
+  try {
+    const seriesIdParsed = z.string().uuid().safeParse(formData.get("seriesId"));
+    if (!seriesIdParsed.success) return { ok: false, message: "Serie no válida." };
+    const seriesId = seriesIdParsed.data;
+
+    const sortOrderParsed = z.coerce.number().int().positive().safeParse(formData.get("sortOrder"));
+    if (!sortOrderParsed.success) return { ok: false, message: "Orden de archivo no válido." };
+
+    const languageCode = String(formData.get("languageCode") || "na").trim() || "na";
+    const mimeHint = String(formData.get("mimeHint") || "").trim() || null;
+
+    if (fileKey.length < 24) return { ok: false, message: "Ruta de archivo no válida." };
+
+    const supabase = await createClient();
+    const series = await supabase.from("series").select("slug").eq("id", seriesId).single();
+    if (!series.data?.slug) return { ok: false, message: "Serie no encontrada." };
+
+    if (!isExpectedR2SeriesAmbientStagingKey(series.data.slug, fileKey)) {
+      return { ok: false, message: "La ruta temporal del archivo no es válida para esta serie." };
+    }
+
+    let buffer: Buffer;
+    try {
+      const got = await getObjectBufferFromR2(fileKey);
+      buffer = got.buffer;
+    } catch (e) {
+      return { ok: false, message: errorToUserMessage(e) };
+    }
+
+    const baseName = fileKey.split("/").pop() || "";
+    const initialExt = inferExtension(baseName, mimeHint);
+    if (!isImageUpload(initialExt, mimeHint)) {
+      await deleteObjectFromR2(fileKey).catch(() => {});
+      return { ok: false, message: "El archivo temporal no es una imagen reconocible." };
+    }
+
+    const prepared = await prepareAmbientImageForUpload(buffer, initialExt, mimeHint);
+    buffer = Buffer.from(prepared.buffer);
+    const ext = prepared.extension;
+    const mimeForRow = prepared.mimeType;
+
+    const normalizedFileName = buildPatternFileName(series.data.slug, "ambient_image", sortOrderParsed.data, ext);
+    const publicBase = normalizedFileName.replace(/\.[^/.]+$/, "");
+
+    const uploadResult = await uploadImageToCloudinary(
+      buffer,
+      `practika/series/${series.data.slug}/${getAssetFolder("ambient_image")}`,
+      publicBase
+    );
+    cloudinaryPublicId = uploadResult.publicId;
+
+    const inserted = await supabase
+      .from("series_assets")
+      .insert({
+        series_id: seriesId,
+        asset_type: "ambient_image",
+        storage_provider: "cloudinary",
+        file_key: uploadResult.publicId,
+        mime_type: mimeForRow,
+        language_code: languageCode,
+        title: normalizedFileName,
+        sort_order: sortOrderParsed.data,
+      })
+      .select("id,asset_type,title,file_key,storage_provider,sort_order")
+      .single();
+
+    if (inserted.error) {
+      if (cloudinaryPublicId) await deleteCloudinaryImage(cloudinaryPublicId).catch(() => {});
+      await deleteObjectFromR2(fileKey).catch(() => {});
+      return { ok: false, message: errorToUserMessage(inserted.error) };
+    }
+
+    await deleteObjectFromR2(fileKey).catch(() => {});
+
+    revalidatePath(`/admin/series/${seriesId}`);
+    revalidatePath("/admin/formats");
+
+    return { ok: true, assets: (inserted.data ? [inserted.data] : []) as UploadedSeriesAssetRow[] };
+  } catch (e) {
+    if (fileKey) await deleteObjectFromR2(fileKey).catch(() => {});
+    if (cloudinaryPublicId) await deleteCloudinaryImage(cloudinaryPublicId).catch(() => {});
     return { ok: false, message: errorToUserMessage(e) };
   }
 }
