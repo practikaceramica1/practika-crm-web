@@ -79,7 +79,8 @@ function ambientMustUseServerPipeline(file: File): boolean {
   if (file.size > maxDirect) return true;
   const n = file.name.toLowerCase();
   if (n.endsWith(".tif") || n.endsWith(".tiff") || n.endsWith(".heic") || n.endsWith(".heif")) {
-    return file.size >= readAmbientDirectThresholdBytes();
+    // Estos formatos dan problemas frecuentes en subida directa y se normalizan mejor con Sharp.
+    return true;
   }
   return false;
 }
