@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { preprocessColorUploadFile } from "@/lib/uploads/ambientClientToJpeg";
 import { Snackbar } from "./Snackbar";
 
 type SignResult = { ok: true; putUrl: string; fileKey: string; contentType: string } | { ok: false; message: string };
@@ -31,13 +32,20 @@ export function ColorImageUploadButton({
     setBusy(true);
     setSnackbar(null);
     try {
+      let uploadFile = file;
+      try {
+        uploadFile = await preprocessColorUploadFile(file);
+      } catch {
+        uploadFile = file;
+      }
+
       const sfd = new FormData();
       sfd.set("seriesId", seriesId);
       sfd.set("formatMaterialId", formatMaterialId);
       sfd.set("variantType", variantType);
       sfd.set("colorName", colorName);
-      sfd.set("originalFileName", file.name);
-      sfd.set("mimeHint", file.type || "");
+      sfd.set("originalFileName", uploadFile.name);
+      sfd.set("mimeHint", uploadFile.type || "");
 
       const signed = await signUploadAction(sfd);
       if (!signed.ok) throw new Error(signed.message);
@@ -48,7 +56,7 @@ export function ColorImageUploadButton({
         credentials: "omit",
         cache: "no-store",
         headers: { "Content-Type": signed.contentType },
-        body: file,
+        body: uploadFile,
       });
       if (!putRes.ok) {
         const detail = await putRes.text().catch(() => "");

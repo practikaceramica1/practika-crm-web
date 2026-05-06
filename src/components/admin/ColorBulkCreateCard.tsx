@@ -1,7 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
+import { needsRasterImagePreviewConversion, preprocessColorUploadFile } from "@/lib/uploads/ambientClientToJpeg";
 import { FormPendingSection } from "./FormPendingSection";
 import { Snackbar } from "./Snackbar";
 import { SubmitButton } from "./SubmitButton";
@@ -34,7 +34,7 @@ export function ColorBulkCreateCard({
   const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  function addImageFiles(list: FileList | File[] | null) {
+  async function addImageFiles(list: FileList | File[] | null) {
     const raw = Array.from(list || []);
     const files = raw.filter(
       (f) =>
@@ -47,13 +47,24 @@ export function ColorBulkCreateCard({
       }
       return;
     }
-    const added = files.map((file) => ({
-      id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 7)}`,
-      name: nameFromFile(file.name),
-      sourceFile: file.name,
-      previewUrl: URL.createObjectURL(file),
-      file,
-    }));
+    const added: Array<{ id: string; name: string; sourceFile: string; previewUrl: string; file: File }> = [];
+    for (const file of files) {
+      let previewBlob: Blob = file;
+      if (needsRasterImagePreviewConversion(file)) {
+        try {
+          previewBlob = await preprocessColorUploadFile(file);
+        } catch {
+          previewBlob = file;
+        }
+      }
+      added.push({
+        id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2, 7)}`,
+        name: nameFromFile(file.name),
+        sourceFile: file.name,
+        previewUrl: URL.createObjectURL(previewBlob),
+        file,
+      });
+    }
     setItems((prev) => [...prev, ...added]);
   }
 
@@ -61,13 +72,20 @@ export function ColorBulkCreateCard({
     try {
       const payloadItems: Array<{ name: string; sourceFile: string }> = [];
       for (const item of items) {
+        let uploadFile = item.file;
+        try {
+          uploadFile = await preprocessColorUploadFile(item.file);
+        } catch {
+          uploadFile = item.file;
+        }
+
         const signFd = new FormData();
         signFd.set("seriesId", seriesId);
         signFd.set("formatMaterialId", formatMaterialId);
         signFd.set("variantType", variantType);
         signFd.set("colorName", item.name);
-        signFd.set("originalFileName", item.file.name);
-        signFd.set("mimeHint", item.file.type || "");
+        signFd.set("originalFileName", uploadFile.name);
+        signFd.set("mimeHint", uploadFile.type || "");
         const signed = await signUploadAction(signFd);
         if (!signed.ok) throw new Error(signed.message);
 
@@ -79,11 +97,11 @@ export function ColorBulkCreateCard({
           headers: {
             "Content-Type": signed.contentType,
           },
-          body: item.file,
+          body: uploadFile,
         });
         if (!putRes.ok) {
           const detail = await putRes.text().catch(() => "");
-          throw new Error(`No se pudo subir "${item.file.name}" (HTTP ${putRes.status})${detail ? `: ${detail.slice(0, 180)}` : ""}`);
+          throw new Error(`No se pudo subir "${uploadFile.name}" (HTTP ${putRes.status})${detail ? `: ${detail.slice(0, 180)}` : ""}`);
         }
         payloadItems.push({ name: item.name, sourceFile: signed.fileKey });
       }
@@ -132,7 +150,7 @@ export function ColorBulkCreateCard({
           onDrop={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            addImageFiles(e.dataTransfer.files);
+            void addImageFiles(e.dataTransfer.files);
           }}
         >
           Arrastra imágenes aquí o haz clic
@@ -143,7 +161,7 @@ export function ColorBulkCreateCard({
             accept="image/*"
             className="hidden"
             onChange={(e) => {
-              addImageFiles(e.target.files);
+              void addImageFiles(e.target.files);
               e.target.value = "";
             }}
           />
@@ -152,12 +170,11 @@ export function ColorBulkCreateCard({
           <div className="mt-2 max-h-48 space-y-2 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-2">
             {items.map((item) => (
               <div key={item.id} className="grid grid-cols-[52px_1fr_auto] gap-2 rounded-md border border-slate-200 bg-white p-2">
-                <Image
+                <img
                   src={item.previewUrl}
                   alt={item.name}
                   width={48}
                   height={48}
-                  unoptimized
                   className="h-12 w-12 rounded-md object-cover"
                 />
                 <input

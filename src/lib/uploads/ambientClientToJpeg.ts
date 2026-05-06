@@ -62,6 +62,15 @@ export function shouldPreprocessAmbientFile(file: File): boolean {
   return file.size >= prepMinBytes();
 }
 
+/** TIFF/HEIF no se muestran en `<img>` en la mayoría de navegadores; generar previsualización vía preprocess. */
+export function needsRasterImagePreviewConversion(file: File): boolean {
+  const n = file.name.toLowerCase();
+  const t = (file.type || "").toLowerCase();
+  if (n.endsWith(".tif") || n.endsWith(".tiff") || t.includes("tiff")) return true;
+  if (n.endsWith(".heic") || n.endsWith(".heif") || t.includes("heif") || t.includes("heic")) return true;
+  return false;
+}
+
 async function tiffBufferToBitmap(buf: ArrayBuffer): Promise<ImageBitmap | null> {
   try {
     const ifds = UTIF.decode(buf) as Array<{ width?: number; height?: number }>;
@@ -156,3 +165,6 @@ export async function preprocessAmbientUploadFile(file: File): Promise<File> {
     return file;
   }
 }
+
+/** Misma lógica que ambientes (TIFF/HEIF → JPEG en el cliente antes del PUT a R2). */
+export const preprocessColorUploadFile = preprocessAmbientUploadFile;

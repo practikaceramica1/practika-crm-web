@@ -128,7 +128,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
     needsColors && formatIds.length > 0
       ? await supabase
           .from("article_colors")
-          .select("id,color_name,variant_type,format_material_id")
+          .select("id,color_name,variant_type,format_material_id,sku")
           .in("format_material_id", formatIds)
           .order("created_at", { ascending: true })
       : { data: [], error: null };
@@ -512,7 +512,9 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                   </div>
                 </div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                  {(colorsByFormat[f.id] || []).map((c) => (
+                  {(colorsByFormat[f.id] || []).map((c) => {
+                    const colorImageUrl = c.sku ? getAssetPublicUrl("r2", String(c.sku)) : "";
+                    return (
                     <article key={c.id} className="rounded-lg border border-slate-200 p-3">
                       <form action={renameArticleColorAction} className="space-y-2">
                         <input type="hidden" name="seriesId" value={series.id} />
@@ -525,12 +527,18 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                       <p className="text-xs text-slate-500">{c.variant_type === "c3" ? "Antideslizante (C3)" : c.variant_type}</p>
                       {c.sku ? (
                         <div className="mt-2">
-                          <img
-                            src={`${resolveR2PublicBaseUrl().replace(/\/$/, "")}/${String(c.sku).replace(/^\/+/, "")}`}
-                            alt={c.color_name}
-                            className="h-20 w-full rounded-md border border-slate-200 object-cover"
-                            loading="lazy"
-                          />
+                          {colorImageUrl ? (
+                            <img
+                              src={colorImageUrl}
+                              alt={c.color_name}
+                              className="h-20 w-full rounded-md border border-slate-200 object-cover"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-900">
+                              Falta <code className="rounded bg-amber-100 px-1">NEXT_PUBLIC_R2_PUBLIC_BASE_URL</code> (o equivalente) para mostrar la imagen.
+                            </p>
+                          )}
                         </div>
                       ) : (
                         <div className="mt-2 rounded-md border border-dashed border-slate-300 bg-slate-50 px-2 py-3 text-xs text-slate-500">
@@ -571,7 +579,8 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                         </FormPendingSection>
                       </form>
                     </article>
-                  ))}
+                    );
+                  })}
                   {(colorsByFormat[f.id] || []).length === 0 ? <p className="text-sm text-slate-500">Sin colores en este formato.</p> : null}
                 </div>
               </div>
