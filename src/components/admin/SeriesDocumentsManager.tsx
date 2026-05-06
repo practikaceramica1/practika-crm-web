@@ -170,7 +170,7 @@ export function SeriesDocumentsManager({
           <p className="mt-1 text-sm text-slate-500">
             En cada sección puedes subir PDF o imagen (JPEG, PNG, WebP, TIFF, etc.). Nombres automáticos: serie + sección + numeración.
             Los PDF de panel y catálogo se suben directamente a R2 desde el navegador (sin límite de tamaño del servidor). Si falla el PUT,
-            revisa CORS del bucket R2 para el origen de este CRM. Las imágenes de más de ~10&nbsp;MB o TIFF/HEIC grandes van por el servidor (compresión) para respetar el límite de Cloudinary en subida directa; en Vercel el POST al API no puede superar ~4.5&nbsp;MB, así que esos casos usan también un PUT temporal a R2 (mismo bucket) y luego el servidor sube a Cloudinary.
+            revisa CORS del bucket R2 para el origen de este CRM. TIFF y archivos grandes se convierten en el navegador a JPEG reescalado para reducir peso antes de la subida. Las que aún necesiten proceso extra van por el servidor; en Vercel el POST al API no puede superar ~4.5&nbsp;MB, así que esos casos usan también un PUT temporal a R2 (mismo bucket) y luego el servidor sube a Cloudinary.
           </p>
           <div className="mt-4 grid gap-3">
             <DocumentDropzoneForm

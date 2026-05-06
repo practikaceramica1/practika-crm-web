@@ -10,6 +10,7 @@ import type {
   SignR2PdfUploadResult,
   UploadSeriesDocumentsResult,
 } from "@/app/admin/series/actions";
+import { preprocessAmbientUploadFile } from "@/lib/uploads/ambientClientToJpeg";
 import { FormPendingSection } from "./FormPendingSection";
 import { Snackbar } from "./Snackbar";
 
@@ -419,7 +420,13 @@ export function DocumentDropzoneForm({
 
       if (useAmbientDirect) {
         const threshold = readAmbientDirectThresholdBytes();
-        for (const file of files) {
+        for (const raw of files) {
+          let file = raw;
+          try {
+            file = await preprocessAmbientUploadFile(raw);
+          } catch {
+            file = raw;
+          }
           let result: UploadSeriesDocumentsResult;
           if (file.size >= threshold && !ambientMustUseServerPipeline(file)) {
             result = await uploadOneAmbientViaCloudinary(file);
@@ -475,7 +482,19 @@ export function DocumentDropzoneForm({
         fd.set("seriesId", seriesId);
         fd.set("assetType", type);
         fd.set("languageCode", languageCode);
-        files.forEach((f) => fd.append("files", f));
+        if (type === "ambient_image") {
+          for (const raw of files) {
+            let f = raw;
+            try {
+              f = await preprocessAmbientUploadFile(raw);
+            } catch {
+              f = raw;
+            }
+            fd.append("files", f);
+          }
+        } else {
+          files.forEach((f) => fd.append("files", f));
+        }
         const result = await postSeriesDocumentsUpload(fd);
         if (!result.ok) {
           setSnackbar({ type: "error", message: result.message });

@@ -859,7 +859,7 @@ export async function signSeriesAmbientUploadAction(formData: FormData): Promise
     const mimeHint = String(formData.get("mimeHint") || "").trim() || null;
     const languageCode = String(formData.get("languageCode") || "na").trim() || "na";
 
-    const supabase = await createClient();
+  const supabase = await createClient();
     const series = await supabase.from("series").select("slug").eq("id", seriesId).single();
     if (!series.data?.slug) return { ok: false, message: "Serie no encontrada." };
 
@@ -1235,41 +1235,41 @@ export async function uploadSeriesDocumentsAction(formData: FormData): Promise<U
     }
     const assetType = assetTypeParsed.data as DocAssetType;
 
-    const languageCode = String(formData.get("languageCode") || "es");
-    const files = getFilePartsFromFormData(formData);
+  const languageCode = String(formData.get("languageCode") || "es");
+  const files = getFilePartsFromFormData(formData);
     if (!files.length) {
       return { ok: false, message: "No se han recibido archivos. Si el archivo es muy grande, prueba a reducirlo o sube uno cada vez." };
     }
 
-    const series = await supabase.from("series").select("slug").eq("id", seriesId).single();
+  const series = await supabase.from("series").select("slug").eq("id", seriesId).single();
     if (!series.data?.slug) {
       return { ok: false, message: "Serie no encontrada." };
     }
 
-    const currentOrder = await supabase
-      .from("series_assets")
-      .select("sort_order")
-      .eq("series_id", seriesId)
-      .eq("asset_type", assetType)
-      .order("sort_order", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+  const currentOrder = await supabase
+    .from("series_assets")
+    .select("sort_order")
+    .eq("series_id", seriesId)
+    .eq("asset_type", assetType)
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
     if (currentOrder.error) {
       return { ok: false, message: errorToUserMessage(currentOrder.error) };
     }
-    const lastOrder = Number(currentOrder.data?.sort_order || 0);
+  const lastOrder = Number(currentOrder.data?.sort_order || 0);
 
-    const rows: Array<Record<string, unknown>> = [];
-    for (let i = 0; i < files.length; i += 1) {
-      const file = files[i];
-      if (file.size === 0) {
+  const rows: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < files.length; i += 1) {
+    const file = files[i];
+    if (file.size === 0) {
         return {
           ok: false,
           message: `El archivo "${file.name || "sin nombre"}" está vacío o no se ha leído correctamente.`,
         };
-      }
+    }
       let buffer = Buffer.from(await file.arrayBuffer());
-      const sortOrder = lastOrder + i + 1;
+    const sortOrder = lastOrder + i + 1;
       const mime = file.type || null;
       const initialExt = inferExtension(file.name, mime);
       const uploadAsPdf = isPdfUpload(initialExt, mime);
@@ -1295,48 +1295,48 @@ export async function uploadSeriesDocumentsAction(formData: FormData): Promise<U
         mimeForRow = mime || "application/pdf";
       }
 
-      const normalizedFileName = buildPatternFileName(series.data.slug, assetType, sortOrder, ext);
+    const normalizedFileName = buildPatternFileName(series.data.slug, assetType, sortOrder, ext);
 
       if (uploadAsImage) {
-        const publicBase = normalizedFileName.replace(/\.[^/.]+$/, "");
+      const publicBase = normalizedFileName.replace(/\.[^/.]+$/, "");
         const result = await uploadImageToCloudinary(
           buffer,
           `practika/series/${series.data.slug}/${getAssetFolder(assetType)}`,
           publicBase
         );
-        rows.push({
-          series_id: seriesId,
-          asset_type: assetType,
-          storage_provider: "cloudinary",
-          file_key: result.publicId,
+      rows.push({
+        series_id: seriesId,
+        asset_type: assetType,
+        storage_provider: "cloudinary",
+        file_key: result.publicId,
           mime_type: mimeForRow,
-          language_code: languageCode,
-          title: normalizedFileName,
-          sort_order: sortOrder,
-        });
-      } else {
-        const key = `series/${series.data.slug}/${getAssetFolder(assetType)}/${normalizedFileName}`;
+        language_code: languageCode,
+        title: normalizedFileName,
+        sort_order: sortOrder,
+      });
+    } else {
+      const key = `series/${series.data.slug}/${getAssetFolder(assetType)}/${normalizedFileName}`;
         await uploadToR2(key, buffer, mimeForRow || "application/pdf");
-        rows.push({
-          series_id: seriesId,
-          asset_type: assetType,
-          storage_provider: "r2",
-          file_key: key,
+      rows.push({
+        series_id: seriesId,
+        asset_type: assetType,
+        storage_provider: "r2",
+        file_key: key,
           mime_type: mimeForRow,
-          language_code: languageCode,
-          title: normalizedFileName,
-          sort_order: sortOrder,
-        });
-      }
+        language_code: languageCode,
+        title: normalizedFileName,
+        sort_order: sortOrder,
+      });
     }
-    const inserted = await supabase
-      .from("series_assets")
-      .insert(rows)
-      .select("id,asset_type,title,file_key,storage_provider,sort_order");
+  }
+  const inserted = await supabase
+    .from("series_assets")
+    .insert(rows)
+    .select("id,asset_type,title,file_key,storage_provider,sort_order");
     if (inserted.error) {
       return { ok: false, message: errorToUserMessage(inserted.error) };
     }
-    revalidatePath(`/admin/series/${seriesId}`);
+  revalidatePath(`/admin/series/${seriesId}`);
 
     return { ok: true, assets: (inserted.data || []) as UploadedSeriesAssetRow[] };
   } catch (e) {
