@@ -47,21 +47,15 @@ export async function prepareAmbientImageForUpload(
 ): Promise<PreparedAmbientImage> {
   const limit = maxBytesForCloudinary();
   const normalize = needsRasterWebNormalize(passThroughExt, passThroughMime);
-  if (!normalize && input.length <= limit) {
-    return {
-      buffer: input,
-      extension: passThroughExt,
-      mimeType: passThroughMime?.trim() || "application/octet-stream",
-      reencoded: false,
-    };
-  }
+  // Para ambientes forzamos salida JPG siempre que el archivo pase por este pipeline.
+  // Asi evitamos incompatibilidades de formato y reducimos peso de forma consistente.
 
   try {
     const meta = await sharp(input).metadata();
     const w = meta.width || 4000;
     const h = meta.height || 4000;
     let maxEdge = Math.min(Math.max(w, h), 8192);
-    let quality = normalize ? 90 : 88;
+    let quality = normalize ? 88 : 84;
 
     for (let round = 0; round < 28; round += 1) {
       const buf = await sharp(input)
