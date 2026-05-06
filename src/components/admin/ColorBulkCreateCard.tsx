@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FormPendingSection } from "./FormPendingSection";
 import { Snackbar } from "./Snackbar";
 import { SubmitButton } from "./SubmitButton";
@@ -21,17 +21,18 @@ export function ColorBulkCreateCard({
   variantType = "regular",
   title = "Carga masiva de colores",
   action,
+  signUploadAction,
 }: {
   seriesId: string;
   formatMaterialId: string;
   variantType?: "regular" | "decor" | "relieve" | "c3";
   title?: string;
   action: (formData: FormData) => void | Promise<void>;
+  signUploadAction: (formData: FormData) => Promise<{ ok: true; putUrl: string; fileKey: string; contentType: string } | { ok: false; message: string }>;
 }) {
-  const [items, setItems] = useState<Array<{ id: string; name: string; sourceFile: string; previewUrl: string }>>([]);
+  const [items, setItems] = useState<Array<{ id: string; name: string; sourceFile: string; previewUrl: string; file: File }>>([]);
   const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const itemsJson = useMemo(() => JSON.stringify(items.map((i) => ({ name: i.name, sourceFile: i.sourceFile }))), [items]);
 
   function addImageFiles(list: FileList | File[] | null) {
     const raw = Array.from(list || []);
@@ -51,13 +52,48 @@ export function ColorBulkCreateCard({
       name: nameFromFile(file.name),
       sourceFile: file.name,
       previewUrl: URL.createObjectURL(file),
+      file,
     }));
     setItems((prev) => [...prev, ...added]);
   }
 
-  const submitAction = async (formData: FormData) => {
+  const submitAction = async () => {
     try {
-      await action(formData);
+      const payloadItems: Array<{ name: string; sourceFile: string }> = [];
+      for (const item of items) {
+        const signFd = new FormData();
+        signFd.set("seriesId", seriesId);
+        signFd.set("formatMaterialId", formatMaterialId);
+        signFd.set("variantType", variantType);
+        signFd.set("colorName", item.name);
+        signFd.set("originalFileName", item.file.name);
+        signFd.set("mimeHint", item.file.type || "");
+        const signed = await signUploadAction(signFd);
+        if (!signed.ok) throw new Error(signed.message);
+
+        const putRes = await fetch(signed.putUrl, {
+          method: "PUT",
+          mode: "cors",
+          credentials: "omit",
+          cache: "no-store",
+          headers: {
+            "Content-Type": signed.contentType,
+          },
+          body: item.file,
+        });
+        if (!putRes.ok) {
+          const detail = await putRes.text().catch(() => "");
+          throw new Error(`No se pudo subir "${item.file.name}" (HTTP ${putRes.status})${detail ? `: ${detail.slice(0, 180)}` : ""}`);
+        }
+        payloadItems.push({ name: item.name, sourceFile: signed.fileKey });
+      }
+
+      const fd = new FormData();
+      fd.set("seriesId", seriesId);
+      fd.set("formatMaterialId", formatMaterialId);
+      fd.set("variantType", variantType);
+      fd.set("itemsJson", JSON.stringify(payloadItems));
+      await action(fd);
       items.forEach((item) => URL.revokeObjectURL(item.previewUrl));
       setItems([]);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -77,14 +113,6 @@ export function ColorBulkCreateCard({
   return (
     <form action={submitAction} className="rounded-lg border border-slate-200 p-3">
       <FormPendingSection>
-        <input
-          type="hidden"
-          name="seriesId"
-          value={seriesId}
-        />
-        <input type="hidden" name="formatMaterialId" value={formatMaterialId} />
-        <input type="hidden" name="itemsJson" value={itemsJson} />
-        <input type="hidden" name="variantType" value={variantType} />
         <p className="text-sm font-semibold">{title}</p>
         <div className="mt-2 grid grid-cols-2 gap-2">
           <div className="input bg-slate-50 text-xs text-slate-500">{variantType === "c3" ? "Antideslizante (C3)" : variantType}</div>

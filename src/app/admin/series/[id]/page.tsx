@@ -25,6 +25,7 @@ import {
   registerSeriesAmbientAssetAction,
   registerSeriesAmbientFromR2StagingAction,
   registerSeriesR2PdfAssetAction,
+  signSeriesR2ColorUploadAction,
   signSeriesAmbientR2StagingUploadAction,
   signSeriesAmbientUploadAction,
   signSeriesR2PdfUploadAction,
@@ -470,6 +471,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                       seriesId={series.id}
                       formatMaterialId={f.id}
                       action={addColorsBulkAction}
+                      signUploadAction={signSeriesR2ColorUploadAction}
                     />
                     <ColorBulkCreateCard
                       title="Decor"
@@ -477,6 +479,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                       seriesId={series.id}
                       formatMaterialId={f.id}
                       action={addColorsBulkAction}
+                      signUploadAction={signSeriesR2ColorUploadAction}
                     />
                     <ColorBulkCreateCard
                       title="Relieve"
@@ -484,6 +487,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                       seriesId={series.id}
                       formatMaterialId={f.id}
                       action={addColorsBulkAction}
+                      signUploadAction={signSeriesR2ColorUploadAction}
                     />
                     <ColorBulkCreateCard
                       title="Antideslizante (C3)"
@@ -491,6 +495,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                       seriesId={series.id}
                       formatMaterialId={f.id}
                       action={addColorsBulkAction}
+                      signUploadAction={signSeriesR2ColorUploadAction}
                     />
                   </div>
                 </div>

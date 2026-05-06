@@ -41,6 +41,8 @@ type ProductLike = {
       name: string;
       slug: string;
       variantType: "regular" | "decor" | "relieve" | "c3";
+      image?: string;
+      sourceFile?: string;
     }>;
   }>;
 };
@@ -126,7 +128,7 @@ export async function GET() {
       formatIds.length > 0
         ? await supabase
             .from("article_colors")
-            .select("id,format_material_id,color_name,color_slug,variant_type,status")
+            .select("id,format_material_id,color_name,color_slug,variant_type,sku,status")
             .in("format_material_id", formatIds)
             .eq("status", "published")
         : { data: [], error: null };
@@ -265,6 +267,8 @@ export async function GET() {
             c.variant_type === "c3"
               ? c.variant_type
               : "regular") as "regular" | "decor" | "relieve" | "c3",
+            image: c.sku ? getAssetPublicUrl("r2", c.sku) : undefined,
+            sourceFile: c.sku || undefined,
           }));
         return {
           formatLabel: f.format_label,

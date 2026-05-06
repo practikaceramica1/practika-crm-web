@@ -109,6 +109,11 @@ export type SignR2AmbientStagingUploadResult =
   | { ok: true; putUrl: string; fileKey: string; sortOrder: number; languageCode: string; contentType: string }
   | { ok: false; message: string };
 
+/** Firma PUT a R2 para imágenes de color (bulk) que luego se publican en la web. */
+export type SignR2ColorUploadResult =
+  | { ok: true; putUrl: string; fileKey: string; contentType: string }
+  | { ok: false; message: string };
+
 /** En Node, entradas de FormData a veces no pasan `instanceof File`; aceptamos cualquier Blob con arrayBuffer. */
 function getFilePartsFromFormData(formData: FormData): File[] {
   const items = formData.getAll("files");
@@ -129,6 +134,13 @@ function getAssetFolder(assetType: DocAssetType) {
   if (assetType === "technical_panel") return "paneles-tecnicos";
   if (assetType === "catalog_pdf") return "catalogos";
   return "ambientes";
+}
+
+function getColorFolder(variantType: "regular" | "decor" | "relieve" | "c3") {
+  if (variantType === "decor") return "decor";
+  if (variantType === "relieve") return "relieve";
+  if (variantType === "c3") return "c3";
+  return "regular";
 }
 
 function inferExtension(fileName: string, mimeType?: string | null) {
@@ -541,6 +553,57 @@ export async function addColorAction(formData: FormData) {
   }
 
   revalidatePath(`/admin/series/${parsed.data.seriesId}`);
+}
+
+export async function signSeriesR2ColorUploadAction(formData: FormData): Promise<SignR2ColorUploadResult> {
+  await requireAdminUser();
+  try {
+    const seriesIdParsed = z.string().uuid().safeParse(formData.get("seriesId"));
+    if (!seriesIdParsed.success) return { ok: false, message: "Serie no válida." };
+    const seriesId = seriesIdParsed.data;
+
+    const formatMaterialIdParsed = z.string().uuid().safeParse(formData.get("formatMaterialId"));
+    if (!formatMaterialIdParsed.success) return { ok: false, message: "Formato/material no válido." };
+    const formatMaterialId = formatMaterialIdParsed.data;
+
+    const variantTypeParsed = z.enum(["regular", "decor", "relieve", "c3"]).safeParse(formData.get("variantType"));
+    if (!variantTypeParsed.success) return { ok: false, message: "Tipo de color no válido." };
+    const variantType = variantTypeParsed.data;
+
+    const colorName = String(formData.get("colorName") || "").trim();
+    if (colorName.length < 2) return { ok: false, message: "Nombre de color no válido." };
+    const colorSlug = slugify(colorName);
+    if (!colorSlug) return { ok: false, message: "No se pudo generar slug para el color." };
+
+    const originalFileName = String(formData.get("originalFileName") || "").trim();
+    if (originalFileName.length < 2) return { ok: false, message: "Nombre de archivo no válido." };
+
+    const mimeHint = String(formData.get("mimeHint") || "").trim() || null;
+    const ext = inferExtension(originalFileName, mimeHint);
+    if (!isImageUpload(ext, mimeHint)) {
+      return { ok: false, message: "Solo se admiten imágenes para colores." };
+    }
+
+    const supabase = await createClient();
+    const series = await supabase.from("series").select("slug").eq("id", seriesId).single();
+    if (!series.data?.slug) return { ok: false, message: "Serie no encontrada." };
+
+    const fm = await supabase
+      .from("format_materials")
+      .select("id")
+      .eq("id", formatMaterialId)
+      .eq("series_id", seriesId)
+      .maybeSingle();
+    if (fm.error) return { ok: false, message: errorToUserMessage(fm.error) };
+    if (!fm.data) return { ok: false, message: "El formato/material no pertenece a esta serie." };
+
+    const key = `series/${series.data.slug}/colores/${formatMaterialId}/${getColorFolder(variantType)}/${colorSlug}-${randomUUID()}.${ext}`;
+    const contentType = mimeHint && mimeHint.toLowerCase().startsWith("image/") ? mimeHint : "application/octet-stream";
+    const putUrl = await signR2PutObjectUrl(key, contentType);
+    return { ok: true, putUrl, fileKey: key, contentType };
+  } catch (e) {
+    return { ok: false, message: errorToUserMessage(e) };
+  }
 }
 
 export async function addColorsBulkAction(formData: FormData) {
