@@ -29,6 +29,10 @@ const toggleSeriesNewSchema = z.object({
   isNew: z.coerce.boolean(),
 });
 const deleteSeriesSchema = z.object({ seriesId: z.string().uuid() });
+const renameSeriesSchema = z.object({
+  seriesId: z.string().uuid(),
+  name: z.string().min(2),
+});
 const addFormatSchema = z.object({
   seriesId: z.string().uuid(),
   widthCm: z.coerce.number().positive(),
@@ -265,6 +269,34 @@ export async function toggleSeriesNewAction(formData: FormData) {
   revalidatePath(`/admin/series/${parsed.data.seriesId}`);
 }
 
+export async function renameSeriesAction(formData: FormData) {
+  await requireAdminUser();
+  const supabase = await createClient();
+  const parsed = renameSeriesSchema.safeParse({
+    seriesId: formData.get("seriesId"),
+    name: formData.get("name"),
+  });
+  if (!parsed.success) throw new Error("Nombre de serie inválido");
+
+  const seriesId = parsed.data.seriesId;
+  const nextName = parsed.data.name.trim();
+  const nextSlug = slugify(nextName);
+  if (!nextSlug) throw new Error("No se pudo generar slug para la serie");
+
+  const upd = await supabase
+    .from("series")
+    .update({
+      name: nextName,
+      slug: nextSlug,
+    })
+    .eq("id", seriesId);
+  if (upd.error) throw new Error(upd.error.message);
+
+  revalidatePath("/admin/series");
+  revalidatePath(`/admin/series/${seriesId}`);
+  revalidatePath("/admin/formats");
+}
+
 export async function deleteSeriesAction(formData: FormData) {
   await requireAdminUser();
   const supabase = await createClient();
@@ -410,6 +442,11 @@ const deleteFormatSchema = z.object({
 const deleteArticleColorSchema = z.object({
   seriesId: z.string().uuid(),
   articleColorId: z.string().uuid(),
+});
+const renameArticleColorSchema = z.object({
+  seriesId: z.string().uuid(),
+  articleColorId: z.string().uuid(),
+  name: z.string().min(2),
 });
 
 export async function updateFormatMaterialAction(formData: FormData) {
@@ -674,6 +711,96 @@ export async function deleteArticleColorAction(formData: FormData) {
 
   const del = await supabase.from("article_colors").delete().eq("id", articleColorId);
   if (del.error) throw new Error(del.error.message);
+
+  revalidatePath(`/admin/series/${seriesId}`);
+  revalidatePath("/admin/formats");
+}
+
+export async function renameArticleColorAction(formData: FormData) {
+  await requireAdminUser();
+  const supabase = await createClient();
+  const parsed = renameArticleColorSchema.safeParse({
+    seriesId: formData.get("seriesId"),
+    articleColorId: formData.get("articleColorId"),
+    name: formData.get("name"),
+  });
+  if (!parsed.success) throw new Error("Nombre de color inválido");
+
+  const { seriesId, articleColorId } = parsed.data;
+  const nextName = parsed.data.name.trim();
+  const nextSlug = slugify(nextName);
+  if (!nextSlug) throw new Error("No se pudo generar slug para el color");
+
+  const color = await supabase
+    .from("article_colors")
+    .select("id, format_material_id")
+    .eq("id", articleColorId)
+    .maybeSingle();
+  if (color.error) throw new Error(color.error.message);
+  if (!color.data) throw new Error("Color no encontrado");
+
+  const fm = await supabase
+    .from("format_materials")
+    .select("id, series_id")
+    .eq("id", color.data.format_material_id)
+    .maybeSingle();
+  if (fm.error) throw new Error(fm.error.message);
+  if (!fm.data || fm.data.series_id !== seriesId) throw new Error("Este color no pertenece a la serie indicada");
+
+  const upd = await supabase
+    .from("article_colors")
+    .update({
+      color_name: nextName,
+      color_slug: nextSlug,
+    })
+    .eq("id", articleColorId);
+  if (upd.error) throw new Error(upd.error.message);
+
+  revalidatePath(`/admin/series/${seriesId}`);
+  revalidatePath("/admin/formats");
+}
+
+export async function setArticleColorImageAction(formData: FormData) {
+  await requireAdminUser();
+  const supabase = await createClient();
+  const parsed = z
+    .object({
+      seriesId: z.string().uuid(),
+      articleColorId: z.string().uuid(),
+      fileKey: z.string().min(12),
+    })
+    .safeParse({
+      seriesId: formData.get("seriesId"),
+      articleColorId: formData.get("articleColorId"),
+      fileKey: formData.get("fileKey"),
+    });
+  if (!parsed.success) throw new Error("Datos inválidos para asignar imagen al color");
+
+  const { seriesId, articleColorId, fileKey } = parsed.data;
+
+  const colorResult = await supabase
+    .from("article_colors")
+    .select("id,format_material_id,sku")
+    .eq("id", articleColorId)
+    .maybeSingle();
+  if (colorResult.error) throw new Error(colorResult.error.message);
+  if (!colorResult.data) throw new Error("Color no encontrado");
+
+  const fm = await supabase
+    .from("format_materials")
+    .select("id,series_id")
+    .eq("id", colorResult.data.format_material_id)
+    .maybeSingle();
+  if (fm.error) throw new Error(fm.error.message);
+  if (!fm.data || fm.data.series_id !== seriesId) throw new Error("Este color no pertenece a la serie indicada");
+
+  const upd = await supabase.from("article_colors").update({ sku: fileKey }).eq("id", articleColorId);
+  if (upd.error) throw new Error(upd.error.message);
+
+  const previousKey = String(colorResult.data.sku || "").trim();
+  if (previousKey && previousKey !== fileKey) {
+    await deleteObjectFromR2(previousKey).catch(() => {});
+  }
 
   revalidatePath(`/admin/series/${seriesId}`);
   revalidatePath("/admin/formats");

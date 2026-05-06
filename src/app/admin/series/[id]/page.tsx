@@ -7,6 +7,7 @@ import { SetupRequired } from "@/components/admin/SetupRequired";
 import { isSchemaNotReadyError } from "@/lib/supabase/error-handling";
 import { MultiFilterPicker } from "@/components/admin/MultiFilterPicker";
 import { ColorBulkCreateCard } from "@/components/admin/ColorBulkCreateCard";
+import { ColorImageUploadButton } from "@/components/admin/ColorImageUploadButton";
 import { FormPendingSection } from "@/components/admin/FormPendingSection";
 import { SeriesDocumentsManager } from "@/components/admin/SeriesDocumentsManager";
 import { SubmitButton } from "@/components/admin/SubmitButton";
@@ -16,7 +17,10 @@ import {
   deleteArticleColorAction,
   deleteFormatMaterialAction,
   deleteSeriesAssetAction,
+  renameArticleColorAction,
+  renameSeriesAction,
   renameSeriesAssetAction,
+  setArticleColorImageAction,
   setColorFiltersAction,
   setFormatFiltersAction,
   setSeriesFiltersAction,
@@ -206,6 +210,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
     color_name: string;
     variant_type: string;
     format_material_id: string;
+    sku?: string | null;
   }>;
   const colorsByFormat = colorRows.reduce<Record<string, typeof colorRows>>((acc, c) => {
     if (!acc[c.format_material_id]) acc[c.format_material_id] = [];
@@ -247,6 +252,13 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
               )}
             </div>
             <p className="mt-1 text-sm text-slate-500">Vista modular por pasos · {series.slug}</p>
+            <form action={renameSeriesAction} className="mt-3 flex flex-wrap items-center gap-2">
+              <input type="hidden" name="seriesId" value={series.id} />
+              <input className="input min-w-64" name="name" defaultValue={series.name} required minLength={2} />
+              <SubmitButton className="btn-secondary text-xs" pendingText="Guardando nombre...">
+                Guardar nombre serie
+              </SubmitButton>
+            </form>
           </div>
           <div className="flex items-center gap-3">
             <form action={toggleSeriesNewAction}>
@@ -502,8 +514,29 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                   {(colorsByFormat[f.id] || []).map((c) => (
                     <article key={c.id} className="rounded-lg border border-slate-200 p-3">
-                      <p className="font-semibold">{c.color_name}</p>
+                      <form action={renameArticleColorAction} className="space-y-2">
+                        <input type="hidden" name="seriesId" value={series.id} />
+                        <input type="hidden" name="articleColorId" value={c.id} />
+                        <input className="input font-semibold" name="name" defaultValue={c.color_name} required minLength={2} />
+                        <SubmitButton className="btn-secondary text-xs" pendingText="Guardando color...">
+                          Guardar nombre color
+                        </SubmitButton>
+                      </form>
                       <p className="text-xs text-slate-500">{c.variant_type === "c3" ? "Antideslizante (C3)" : c.variant_type}</p>
+                      {c.sku ? (
+                        <div className="mt-2">
+                          <img
+                            src={`${resolveR2PublicBaseUrl().replace(/\/$/, "")}/${String(c.sku).replace(/^\/+/, "")}`}
+                            alt={c.color_name}
+                            className="h-20 w-full rounded-md border border-slate-200 object-cover"
+                            loading="lazy"
+                          />
+                        </div>
+                      ) : (
+                        <div className="mt-2 rounded-md border border-dashed border-slate-300 bg-slate-50 px-2 py-3 text-xs text-slate-500">
+                          Sin imagen de color
+                        </div>
+                      )}
                       <div className="mt-2">
                         <MultiFilterPicker
                           groups={groupedFilters}
@@ -515,6 +548,15 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                           confirmMessage="¿Guardar cambios en los filtros del color?"
                         />
                       </div>
+                      <ColorImageUploadButton
+                        seriesId={series.id}
+                        formatMaterialId={f.id}
+                        articleColorId={c.id}
+                        colorName={c.color_name}
+                        variantType={c.variant_type === "decor" || c.variant_type === "relieve" || c.variant_type === "c3" ? c.variant_type : "regular"}
+                        signUploadAction={signSeriesR2ColorUploadAction}
+                        setColorImageAction={setArticleColorImageAction}
+                      />
                       <form action={deleteArticleColorAction} className="mt-3 border-t border-slate-100 pt-3">
                         <FormPendingSection>
                           <input type="hidden" name="seriesId" value={series.id} />

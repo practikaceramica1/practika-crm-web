@@ -238,6 +238,14 @@ export function SeriesDocumentsManager({
                     const publicUrl = resolveUrl(asset);
                     return (
                       <div key={asset.id} className="rounded-md border border-slate-200 bg-slate-50 p-2">
+                        {type === "ambient_image" && publicUrl ? (
+                          <img
+                            src={publicUrl}
+                            alt={asset.title || "Ambiente"}
+                            className="mb-2 h-24 w-full rounded-md border border-slate-200 object-cover"
+                            loading="lazy"
+                          />
+                        ) : null}
                         <div className="grid gap-2 md:grid-cols-[1fr_auto]">
                           <input
                             className="input"
