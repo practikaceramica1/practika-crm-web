@@ -42,6 +42,8 @@ type ProductLike = {
       slug: string;
       variantType: "regular" | "decor" | "relieve" | "c3";
       image?: string;
+      /** Giro visual en grados en sentido horario (como CSS `rotate(...)` positivo). 0 si la foto ya está bien. */
+      imageRotationDegrees?: 0 | 90 | 180 | 270;
       sourceFile?: string;
     }>;
   }>;
@@ -128,7 +130,7 @@ export async function GET() {
       formatIds.length > 0
         ? await supabase
             .from("article_colors")
-            .select("id,format_material_id,color_name,color_slug,variant_type,sku,status")
+            .select("id,format_material_id,color_name,color_slug,variant_type,sku,status,image_rotation_degrees")
             .in("format_material_id", formatIds)
             .eq("status", "published")
         : { data: [], error: null };
@@ -258,7 +260,12 @@ export async function GET() {
         const formatColors = colorsByFormat.get(f.id) || [];
         const articleColors = formatColors
           .filter((c) => c.color_name)
-          .map((c) => ({
+          .map((c) => {
+            const rawDeg = Number(c.image_rotation_degrees);
+            const imageRotationDegrees: 0 | 90 | 180 | 270 = [0, 90, 180, 270].includes(rawDeg)
+              ? (rawDeg as 0 | 90 | 180 | 270)
+              : 0;
+            return {
             id: c.id,
             name: c.color_name!,
             slug: (c.color_slug || "").trim() || c.color_name!.toLowerCase().replace(/\s+/g, "-"),
@@ -268,8 +275,10 @@ export async function GET() {
               ? c.variant_type
               : "regular") as "regular" | "decor" | "relieve" | "c3",
             image: c.sku ? getAssetPublicUrl("r2", c.sku) : undefined,
+            imageRotationDegrees,
             sourceFile: c.sku || undefined,
-          }));
+          };
+          });
         return {
           formatLabel: f.format_label,
           formatMaterialId: f.id,

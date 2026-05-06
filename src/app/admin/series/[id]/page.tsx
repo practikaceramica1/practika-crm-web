@@ -21,6 +21,7 @@ import {
   renameSeriesAction,
   renameSeriesAssetAction,
   setArticleColorImageAction,
+  setArticleColorImageRotationAction,
   setColorFiltersAction,
   setFormatFiltersAction,
   setSeriesFiltersAction,
@@ -128,7 +129,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
     needsColors && formatIds.length > 0
       ? await supabase
           .from("article_colors")
-          .select("id,color_name,variant_type,format_material_id,sku")
+          .select("id,color_name,variant_type,format_material_id,sku,image_rotation_degrees")
           .in("format_material_id", formatIds)
           .order("created_at", { ascending: true })
       : { data: [], error: null };
@@ -211,6 +212,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
     variant_type: string;
     format_material_id: string;
     sku?: string | null;
+    image_rotation_degrees?: number | null;
   }>;
   const colorsByFormat = colorRows.reduce<Record<string, typeof colorRows>>((acc, c) => {
     if (!acc[c.format_material_id]) acc[c.format_material_id] = [];
@@ -514,6 +516,11 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                   {(colorsByFormat[f.id] || []).map((c) => {
                     const colorImageUrl = c.sku ? getAssetPublicUrl("r2", String(c.sku)) : "";
+                    const rotationDeg =
+                      typeof c.image_rotation_degrees === "number" &&
+                      [0, 90, 180, 270].includes(c.image_rotation_degrees)
+                        ? c.image_rotation_degrees
+                        : 0;
                     return (
                     <article key={c.id} className="rounded-lg border border-slate-200 p-3">
                       <form action={renameArticleColorAction} className="space-y-2">
@@ -528,12 +535,15 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                       {c.sku ? (
                         <div className="mt-2">
                           {colorImageUrl ? (
-                            <img
-                              src={colorImageUrl}
-                              alt={c.color_name}
-                              className="h-20 w-full rounded-md border border-slate-200 object-cover"
-                              loading="lazy"
-                            />
+                            <div className="flex min-h-[5rem] w-full items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+                              <img
+                                src={colorImageUrl}
+                                alt={c.color_name}
+                                className="max-h-32 max-w-full object-contain"
+                                style={{ transform: `rotate(${rotationDeg}deg)` }}
+                                loading="lazy"
+                              />
+                            </div>
                           ) : (
                             <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-900">
                               Falta <code className="rounded bg-amber-100 px-1">NEXT_PUBLIC_R2_PUBLIC_BASE_URL</code> (o equivalente) para mostrar la imagen.
@@ -545,6 +555,29 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                           Sin imagen de color
                         </div>
                       )}
+                      <form action={setArticleColorImageRotationAction} className="mt-2 space-y-1 rounded-md border border-slate-100 bg-slate-50/80 p-2">
+                        <input type="hidden" name="seriesId" value={series.id} />
+                        <input type="hidden" name="articleColorId" value={c.id} />
+                        <label className="block text-xs font-medium text-slate-600" htmlFor={`rot-${c.id}`}>
+                          Orientación en la web (giro visual, no modifica el archivo)
+                        </label>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select
+                            id={`rot-${c.id}`}
+                            name="imageRotationDegrees"
+                            className="input max-w-[12rem] flex-1 text-xs"
+                            defaultValue={String(rotationDeg)}
+                          >
+                            <option value="0">0° — tal cual la foto</option>
+                            <option value="90">90° — sentido horario</option>
+                            <option value="180">180°</option>
+                            <option value="270">270° (90° antihorario)</option>
+                          </select>
+                          <SubmitButton className="btn-secondary text-xs" pendingText="Guardando…">
+                            Guardar orientación
+                          </SubmitButton>
+                        </div>
+                      </form>
                       <div className="mt-2">
                         <MultiFilterPicker
                           groups={groupedFilters}

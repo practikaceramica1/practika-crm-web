@@ -806,6 +806,48 @@ export async function setArticleColorImageAction(formData: FormData) {
   revalidatePath("/admin/formats");
 }
 
+export async function setArticleColorImageRotationAction(formData: FormData) {
+  await requireAdminUser();
+  const supabase = await createClient();
+  const parsed = z
+    .object({
+      seriesId: z.string().uuid(),
+      articleColorId: z.string().uuid(),
+      imageRotationDegrees: z.union([z.literal("0"), z.literal("90"), z.literal("180"), z.literal("270")]),
+    })
+    .safeParse({
+      seriesId: formData.get("seriesId"),
+      articleColorId: formData.get("articleColorId"),
+      imageRotationDegrees: formData.get("imageRotationDegrees"),
+    });
+  if (!parsed.success) throw new Error("Datos inválidos para orientación de imagen");
+
+  const degrees = parseInt(parsed.data.imageRotationDegrees, 10);
+  const { seriesId, articleColorId } = parsed.data;
+
+  const colorResult = await supabase
+    .from("article_colors")
+    .select("id,format_material_id")
+    .eq("id", articleColorId)
+    .maybeSingle();
+  if (colorResult.error) throw new Error(colorResult.error.message);
+  if (!colorResult.data) throw new Error("Color no encontrado");
+
+  const fm = await supabase
+    .from("format_materials")
+    .select("id,series_id")
+    .eq("id", colorResult.data.format_material_id)
+    .maybeSingle();
+  if (fm.error) throw new Error(fm.error.message);
+  if (!fm.data || fm.data.series_id !== seriesId) throw new Error("Este color no pertenece a la serie indicada");
+
+  const upd = await supabase.from("article_colors").update({ image_rotation_degrees: degrees }).eq("id", articleColorId);
+  if (upd.error) throw new Error(upd.error.message);
+
+  revalidatePath(`/admin/series/${seriesId}`);
+  revalidatePath("/admin/formats");
+}
+
 export async function setSeriesFiltersAction(formData: FormData) {
   await requireAdminUser();
   const supabase = await createClient();
