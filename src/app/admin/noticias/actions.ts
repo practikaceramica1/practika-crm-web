@@ -370,6 +370,40 @@ export async function toggleNewsAssetFavoriteAction(formData: FormData) {
   revalidatePath(`/admin/noticias/${row.section_id}`);
 }
 
+export async function updateNewsAssetTitleAction(formData: FormData) {
+  await requireAdminUser();
+  const parsed = z
+    .object({
+      assetId: z.string().uuid(),
+      title: z.string().max(240),
+    })
+    .safeParse({
+      assetId: formData.get("assetId"),
+      title: formData.get("title") ?? "",
+    });
+  if (!parsed.success) throw new Error("Título no válido.");
+
+  const nextTitle = parsed.data.title.trim() || null;
+  const supabase = await createClient();
+  const { data: row, error: fErr } = await supabase
+    .from("news_section_assets")
+    .select("id,section_id,title")
+    .eq("id", parsed.data.assetId)
+    .maybeSingle();
+  if (fErr) throw new Error(fErr.message);
+  if (!row) throw new Error("Archivo no encontrado.");
+
+  if ((row.title || "").trim() === (nextTitle || "").trim()) {
+    return { ok: true as const };
+  }
+
+  const u = await supabase.from("news_section_assets").update({ title: nextTitle }).eq("id", parsed.data.assetId);
+  if (u.error) throw new Error(u.error.message);
+  revalidatePath("/admin/noticias");
+  revalidatePath(`/admin/noticias/${row.section_id}`);
+  return { ok: true as const };
+}
+
 export async function deleteNewsAssetAction(formData: FormData) {
   await requireAdminUser();
   const assetId = z.string().uuid().parse(formData.get("assetId"));

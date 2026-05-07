@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Snackbar } from "@/components/admin/Snackbar";
 import type { NewsSectionAssetRow } from "./actions";
 import {
@@ -10,6 +10,7 @@ import {
   reorderNewsAssetsInBucketAction,
   signNewsAssetR2UploadAction,
   toggleNewsAssetFavoriteAction,
+  updateNewsAssetTitleAction,
 } from "./actions";
 
 function fileIsImageOrPdf(file: File) {
@@ -23,6 +24,105 @@ function partitionAssets(assets: NewsSectionAssetRow[]) {
   const fav = assets.filter((a) => a.is_favorite).sort((x, y) => x.ordinal - y.ordinal);
   const std = assets.filter((a) => !a.is_favorite).sort((x, y) => x.ordinal - y.ordinal);
   return { favorites: fav, standard: std };
+}
+
+function EditableAssetRow({
+  a,
+  bucket,
+  onDragStart,
+  onDragOver,
+  onDropOn,
+  onToggleFav,
+  onRemove,
+  onTitleSaved,
+  setSnackbar,
+}: {
+  a: NewsSectionAssetRow;
+  bucket: "favorite" | "standard";
+  onDragStart: (id: string, bucket: "favorite" | "standard") => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDropOn: (targetId: string, bucket: "favorite" | "standard") => void;
+  onToggleFav: (id: string) => void;
+  onRemove: (id: string) => void;
+  onTitleSaved: (id: string, title: string | null) => void;
+  setSnackbar: (v: { type: "success" | "error"; message: string } | null) => void;
+}) {
+  const [draft, setDraft] = useState(a.title ?? "");
+  useEffect(() => {
+    setDraft(a.title ?? "");
+  }, [a.id, a.title]);
+
+  const baseline = (a.title ?? "").trim();
+  const dirty = draft.trim() !== baseline;
+  const fileHint = a.file_key.split("/").pop() || a.file_key;
+
+  const saveTitle = async () => {
+    try {
+      const fd = new FormData();
+      fd.set("assetId", a.id);
+      fd.set("title", draft);
+      await updateNewsAssetTitleAction(fd);
+      onTitleSaved(a.id, draft.trim() || null);
+      setSnackbar({ type: "success", message: "Título guardado." });
+    } catch (e) {
+      setSnackbar({ type: "error", message: e instanceof Error ? e.message : "No se pudo guardar el título." });
+    }
+  };
+
+  return (
+    <li
+      draggable
+      onDragStart={() => onDragStart(a.id, bucket)}
+      onDragOver={onDragOver}
+      onDrop={() => onDropOn(a.id, bucket)}
+      className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm"
+    >
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
+        <div className="flex shrink-0 items-center gap-2 lg:flex-col lg:items-center lg:pt-1">
+          <span className="cursor-grab select-none text-slate-400" title="Arrastrar para reordenar">
+            ⋮⋮
+          </span>
+          <span className="text-xs font-semibold tabular-nums text-slate-500">{a.ordinal}.</span>
+        </div>
+        <div className="min-w-0 flex-1 space-y-2">
+          <div>
+            <label className="block text-xs font-medium text-slate-700">Título en la web</label>
+            <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input
+                className="input flex-1 text-sm"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                maxLength={240}
+                placeholder="Ej. Campaña primavera, Proyecto en Valencia…"
+                aria-label="Título visible en la web"
+              />
+              <button
+                type="button"
+                className="btn-primary shrink-0 px-3 py-2 text-xs disabled:pointer-events-none disabled:opacity-35"
+                disabled={!dirty}
+                onClick={() => void saveTitle()}
+              >
+                Guardar título
+              </button>
+            </div>
+            <p className="mt-1.5 text-xs text-slate-500">
+              Se muestra bajo la imagen o como encabezado del PDF. Si lo dejas vacío, en la lista se usa el nombre del
+              archivo: <span className="font-mono text-slate-600">{fileHint}</span>
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-slate-100 pt-2 lg:flex-col lg:items-stretch lg:border-0 lg:pt-1">
+          <span className="rounded bg-slate-100 px-2 py-0.5 text-center text-xs text-slate-600">{a.asset_type}</span>
+          <button type="button" className="btn-secondary text-xs" onClick={() => void onToggleFav(a.id)}>
+            {a.is_favorite ? "Quitar destacado" : "Destacar"}
+          </button>
+          <button type="button" className="btn-secondary text-xs" onClick={() => void onRemove(a.id)}>
+            Quitar
+          </button>
+        </div>
+      </div>
+    </li>
+  );
 }
 
 export function NoticiaSectionAssetsEditor({
@@ -174,29 +274,24 @@ export function NoticiaSectionAssetsEditor({
     }
   };
 
+  const patchAssetTitle = useCallback((id: string, title: string | null) => {
+    setFavorites((p) => p.map((x) => (x.id === id ? { ...x, title } : x)));
+    setStandard((p) => p.map((x) => (x.id === id ? { ...x, title } : x)));
+  }, []);
+
   const renderRow = (a: NewsSectionAssetRow, bucket: "favorite" | "standard") => (
-    <li
+    <EditableAssetRow
       key={a.id}
-      draggable
-      onDragStart={() => onDragStart(a.id, bucket)}
+      a={a}
+      bucket={bucket}
+      onDragStart={onDragStart}
       onDragOver={onDragOver}
-      onDrop={() => onDropOn(a.id, bucket)}
-      className="flex cursor-grab items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 active:cursor-grabbing"
-    >
-      <span className="select-none text-slate-400" title="Arrastrar para reordenar">
-        ⋮⋮
-      </span>
-      <span className="flex-1 truncate text-sm font-medium text-slate-800">
-        {a.ordinal}. {a.title || a.file_key.split("/").pop()}
-      </span>
-      <span className="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{a.asset_type}</span>
-      <button type="button" className="btn-secondary text-xs" onClick={() => void toggleFav(a.id)}>
-        {a.is_favorite ? "Quitar destacado" : "Destacar"}
-      </button>
-      <button type="button" className="btn-secondary text-xs" onClick={() => void removeAsset(a.id)}>
-        Quitar
-      </button>
-    </li>
+      onDropOn={onDropOn}
+      onToggleFav={toggleFav}
+      onRemove={removeAsset}
+      onTitleSaved={patchAssetTitle}
+      setSnackbar={setSnackbar}
+    />
   );
 
   return (
