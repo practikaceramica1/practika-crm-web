@@ -29,6 +29,14 @@ INSERT INTO public.offers (slug, title, status)
 SELECT 'principal', 'Ofertas en la web', 'draft'
 WHERE NOT EXISTS (SELECT 1 FROM public.offers WHERE slug = 'principal');
 
+CREATE OR REPLACE FUNCTION public.set_updated_at()
+RETURNS trigger AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 DROP TRIGGER IF EXISTS trg_updated_at ON public.offers;
 CREATE TRIGGER trg_updated_at
   BEFORE UPDATE ON public.offers
