@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FolderKanban, Filter, Ruler } from "lucide-react";
+import { FolderKanban, Filter, Megaphone, Ruler } from "lucide-react";
 
 const links = [
   { href: "/admin/series", label: "Series", hint: "Constructor", icon: FolderKanban },
+  { href: "/admin/ofertas", label: "Ofertas", hint: "Web", icon: Megaphone },
   { href: "/admin/formats", label: "Formatos", hint: "Global", icon: Ruler },
   { href: "/admin/filters", label: "Filtros", hint: "Catálogo", icon: Filter },
 ];
