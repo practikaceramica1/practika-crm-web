@@ -4,15 +4,17 @@ import { getAssetPublicUrl } from "@/lib/storageUrl";
 
 export const revalidate = 60;
 
+export type PublicCatalogTranslationEntry = { title: string; subtitle: string };
+export type PublicCatalogTranslations = Partial<Record<string, PublicCatalogTranslationEntry>>;
+
 export type PublicDownloadCatalogItem = {
   id: string;
   title: string;
   subtitle: string | null;
-  year: string | null;
-  coverStyle: string;
   fileUrl: string;
   fileSizeHint: string | null;
   fileKey: string;
+  translations: PublicCatalogTranslations;
 };
 
 export async function GET() {
@@ -20,7 +22,7 @@ export async function GET() {
     const supabase = await createClient();
     const { data: rows, error } = await supabase
       .from("download_catalog_items")
-      .select("id,title,subtitle,year,cover_style,storage_provider,file_key,file_size_hint")
+      .select("id,title,subtitle,storage_provider,file_key,file_size_hint,translations")
       .eq("status", "published")
       .order("sort_order", { ascending: true });
     if (error) throw new Error(error.message);
@@ -33,11 +35,10 @@ export async function GET() {
           id: r.id,
           title: String(r.title || ""),
           subtitle: r.subtitle ? String(r.subtitle) : null,
-          year: r.year ? String(r.year) : null,
-          coverStyle: String(r.cover_style || "light"),
           fileUrl,
           fileSizeHint: r.file_size_hint ? String(r.file_size_hint) : null,
           fileKey: String(r.file_key),
+          translations: (r.translations as PublicCatalogTranslations) ?? {},
         };
       })
       .filter(Boolean) as PublicDownloadCatalogItem[];

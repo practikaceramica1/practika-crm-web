@@ -8,21 +8,23 @@ import { createClient } from "@/lib/supabase/server";
 import { errorToUserMessage } from "@/lib/errorMessage";
 import { deleteObjectFromR2, signR2PutObjectUrl } from "@/lib/uploads/r2";
 
-const COVER_STYLES = ["dark-blue", "dark-stone", "light", "amber", "regulatory-dop"] as const;
-export type DownloadCatalogCoverStyle = (typeof COVER_STYLES)[number];
+export type CatalogLang = "en" | "fr" | "de" | "pt";
+export const CATALOG_EXTRA_LANGS: CatalogLang[] = ["en", "fr", "de", "pt"];
+
+export type CatalogTranslationEntry = { title: string; subtitle: string };
+export type CatalogTranslations = Partial<Record<CatalogLang, CatalogTranslationEntry>>;
 
 export type DownloadCatalogItemRow = {
   id: string;
   title: string;
   subtitle: string | null;
-  year: string | null;
-  cover_style: DownloadCatalogCoverStyle;
   storage_provider: string;
   file_key: string;
   mime_type: string | null;
   file_size_hint: string | null;
   sort_order: number;
   status: "draft" | "published";
+  translations: CatalogTranslations | null;
 };
 
 function isExpectedDownloadCatalogKey(itemId: string, fileKey: string) {
@@ -36,7 +38,7 @@ export async function listDownloadCatalogItemsAdmin(): Promise<DownloadCatalogIt
   const { data, error } = await supabase
     .from("download_catalog_items")
     .select(
-      "id,title,subtitle,year,cover_style,storage_provider,file_key,mime_type,file_size_hint,sort_order,status"
+      "id,title,subtitle,storage_provider,file_key,mime_type,file_size_hint,sort_order,status,translations"
     )
     .order("sort_order", { ascending: true });
   if (error) throw Object.assign(new Error(error.message), { code: error.code });
@@ -105,6 +107,26 @@ export async function signReplaceDownloadCatalogPdfAction(formData: FormData): P
   }
 }
 
+function parseTranslationsJson(raw: string | null): CatalogTranslations | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const out: CatalogTranslations = {};
+    for (const lang of CATALOG_EXTRA_LANGS) {
+      const entry = parsed[lang];
+      if (entry && typeof entry === "object") {
+        out[lang] = {
+          title: String((entry as Record<string, unknown>).title ?? ""),
+          subtitle: String((entry as Record<string, unknown>).subtitle ?? ""),
+        };
+      }
+    }
+    return Object.keys(out).length ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function registerNewDownloadCatalogItemAction(formData: FormData) {
   await requireAdminUser();
   const parsed = z
@@ -113,23 +135,23 @@ export async function registerNewDownloadCatalogItemAction(formData: FormData) {
       fileKey: z.string().min(12),
       title: z.string().min(1).max(240),
       subtitle: z.string().max(240).optional(),
-      year: z.string().max(16).optional(),
-      coverStyle: z.enum(COVER_STYLES),
       fileSizeHint: z.string().max(32).optional(),
+      translationsJson: z.string().optional(),
     })
     .safeParse({
       itemId: formData.get("itemId"),
       fileKey: formData.get("fileKey"),
       title: formData.get("title"),
       subtitle: formData.get("subtitle") ?? "",
-      year: formData.get("year") ?? "",
-      coverStyle: formData.get("coverStyle"),
       fileSizeHint: formData.get("fileSizeHint") ?? "",
+      translationsJson: formData.get("translationsJson") ?? "",
     });
   if (!parsed.success) throw new Error("Datos incompletos o no válidos.");
   if (!isExpectedDownloadCatalogKey(parsed.data.itemId, parsed.data.fileKey)) {
     throw new Error("La ruta del archivo no es válida.");
   }
+
+  const translations = parseTranslationsJson(parsed.data.translationsJson ?? null);
 
   const supabase = await createClient();
   const { data: last } = await supabase
@@ -146,14 +168,13 @@ export async function registerNewDownloadCatalogItemAction(formData: FormData) {
       id: parsed.data.itemId,
       title: parsed.data.title.trim(),
       subtitle: parsed.data.subtitle?.trim() || null,
-      year: parsed.data.year?.trim() || null,
-      cover_style: parsed.data.coverStyle,
       storage_provider: "r2",
       file_key: parsed.data.fileKey,
       mime_type: "application/pdf",
       file_size_hint: parsed.data.fileSizeHint?.trim() || null,
       sort_order: nextOrder,
       status: "draft",
+      translations,
     })
     .select("id")
     .single();
@@ -168,21 +189,21 @@ export async function updateDownloadCatalogItemMetaAction(formData: FormData) {
       itemId: z.string().uuid(),
       title: z.string().min(1).max(240),
       subtitle: z.string().max(240).optional(),
-      year: z.string().max(16).optional(),
-      coverStyle: z.enum(COVER_STYLES),
       fileSizeHint: z.string().max(32).optional(),
       status: z.enum(["draft", "published"]),
+      translationsJson: z.string().optional(),
     })
     .safeParse({
       itemId: formData.get("itemId"),
       title: formData.get("title"),
       subtitle: formData.get("subtitle") ?? "",
-      year: formData.get("year") ?? "",
-      coverStyle: formData.get("coverStyle"),
       fileSizeHint: formData.get("fileSizeHint") ?? "",
       status: formData.get("status"),
+      translationsJson: formData.get("translationsJson") ?? "",
     });
   if (!parsed.success) throw new Error("Datos no válidos.");
+
+  const translations = parseTranslationsJson(parsed.data.translationsJson ?? null);
 
   const supabase = await createClient();
   const u = await supabase
@@ -190,10 +211,9 @@ export async function updateDownloadCatalogItemMetaAction(formData: FormData) {
     .update({
       title: parsed.data.title.trim(),
       subtitle: parsed.data.subtitle?.trim() || null,
-      year: parsed.data.year?.trim() || null,
-      cover_style: parsed.data.coverStyle,
       file_size_hint: parsed.data.fileSizeHint?.trim() || null,
       status: parsed.data.status,
+      translations,
     })
     .eq("id", parsed.data.itemId);
   if (u.error) throw new Error(u.error.message);
