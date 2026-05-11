@@ -7,25 +7,8 @@ import { requireAdminUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { errorToUserMessage } from "@/lib/errorMessage";
 import { deleteObjectFromR2, signR2PutObjectUrl } from "@/lib/uploads/r2";
-
-export type CatalogLang = "en" | "fr" | "de" | "pt";
-export const CATALOG_EXTRA_LANGS: CatalogLang[] = ["en", "fr", "de", "pt"];
-
-export type CatalogTranslationEntry = { title: string; subtitle: string };
-export type CatalogTranslations = Partial<Record<CatalogLang, CatalogTranslationEntry>>;
-
-export type DownloadCatalogItemRow = {
-  id: string;
-  title: string;
-  subtitle: string | null;
-  storage_provider: string;
-  file_key: string;
-  mime_type: string | null;
-  file_size_hint: string | null;
-  sort_order: number;
-  status: "draft" | "published";
-  translations: CatalogTranslations | null;
-};
+import type { CatalogTranslations, DownloadCatalogItemRow, SignDownloadCatalogPdfResult } from "./downloadCatalogTypes";
+import { CATALOG_EXTRA_LANGS } from "./downloadCatalogTypes";
 
 function isExpectedDownloadCatalogKey(itemId: string, fileKey: string) {
   if (!fileKey || fileKey.includes("..")) return false;
@@ -63,10 +46,6 @@ export async function reorderDownloadCatalogItemsAction(formData: FormData) {
   }
   revalidatePath("/admin/descargas-catalogos");
 }
-
-export type SignDownloadCatalogPdfResult =
-  | { ok: true; putUrl: string; fileKey: string; contentType: string; itemId: string }
-  | { ok: false; message: string };
 
 export async function signNewDownloadCatalogPdfAction(formData: FormData): Promise<SignDownloadCatalogPdfResult> {
   await requireAdminUser();

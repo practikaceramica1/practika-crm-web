@@ -3,9 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Snackbar } from "@/components/admin/Snackbar";
-import type { CatalogLang, CatalogTranslations, DownloadCatalogItemRow } from "./actions";
+import type { CatalogLang, CatalogTranslations, DownloadCatalogItemRow } from "./downloadCatalogTypes";
+import { CATALOG_EXTRA_LANGS } from "./downloadCatalogTypes";
 import {
-  CATALOG_EXTRA_LANGS,
   applyDownloadCatalogPdfReplaceAction,
   deleteDownloadCatalogItemAction,
   registerNewDownloadCatalogItemAction,
