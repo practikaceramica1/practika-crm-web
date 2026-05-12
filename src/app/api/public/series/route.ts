@@ -68,13 +68,36 @@ function mapFilterKey(key: string):
   if (k === "finishcut" || k === "acabadocorte") return "finishCut";
   if (k === "finishsurface" || k === "acabadosuperficial") return "finishSurface";
   if (k === "thickness" || k === "espesor") return "thickness";
-  if (k === "style" || k === "estilo") return "style";
+  if (k === "style" || k === "estilo" || k === "estilos") return "style";
   if (k === "surfacetype" || k === "tipo") return "surfaceType";
-  if (k === "effect" || k === "efecto") return "effect";
+  if (k === "effect" || k === "efecto" || k === "efectos") return "effect";
   if (k === "materials" || k === "material") return "materials";
   if (k === "formats" || k === "format") return "formats";
   if (k === "colors" || k === "color") return "colors";
   return null;
+}
+
+/** Coincidencia por palabras en el nombre visible del grupo (p. ej. «Tipo de estilo»). */
+function mapFilterGroupFromNameLabel(name: string) {
+  const raw = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const tokens = raw.split(/[^a-z0-9]+/).filter(Boolean);
+  if (tokens.some((t) => t === "estilo" || t === "estilos")) return "style";
+  if (tokens.some((t) => t === "efecto" || t === "efectos")) return "effect";
+  if (tokens.some((t) => t === "espesor")) return "thickness";
+  if (tokens.some((t) => t === "corte") && tokens.includes("acabado")) return "finishCut";
+  if (tokens.some((t) => t === "superficie") && tokens.includes("acabado")) return "finishSurface";
+  if (tokens.some((t) => t === "pavimento" || t === "revestimiento")) return "surfaceType";
+  return null;
+}
+
+/** Clave libre en CRM + nombre visible: mapear por `key` y si no, por `name` (p. ej. key `fg2` + name «Estilo»). */
+function mapFilterGroup(group: { key?: string | null; name?: string | null } | null | undefined) {
+  const key = (group?.key || "").trim();
+  const name = (group?.name || "").trim();
+  return mapFilterKey(key) || mapFilterKey(name) || (name ? mapFilterGroupFromNameLabel(name) : null);
 }
 
 function parseFormatForSort(label: string): [number, number] {
@@ -161,14 +184,14 @@ export async function GET() {
       string,
       {
         label: string;
-        groupKey: string;
+        mappedGroup: ReturnType<typeof mapFilterGroup>;
       }
     >();
     (filterOptions || []).forEach((opt) => {
       const group = Array.isArray(opt.filter_groups) ? opt.filter_groups[0] : opt.filter_groups;
       optionsById.set(opt.id, {
         label: opt.label,
-        groupKey: group?.key || group?.name || "",
+        mappedGroup: mapFilterGroup(group),
       });
     });
 
@@ -186,7 +209,7 @@ export async function GET() {
     (seriesFilterRows || []).forEach((row) => {
       const info = optionsById.get(row.filter_option_id);
       if (!info) return;
-      const mapped = mapFilterKey(info.groupKey);
+      const mapped = info.mappedGroup;
       if (!mapped) return;
       if (
         mapped !== "finishCut" &&
