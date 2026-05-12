@@ -39,6 +39,12 @@ type ProductLike = {
     materialName: string;
     widthCm: number;
     heightCm: number;
+    finishCut?: string[];
+    finishSurface?: string[];
+    thickness?: string[];
+    style?: string[];
+    surfaceType?: string[];
+    effect?: string[];
     articleColors: Array<{
       id: string;
       name: string;
@@ -245,6 +251,15 @@ export async function GET() {
         : { data: [], error: null };
     if (colorsError) throw new Error(colorsError.message);
 
+    const { data: formatMaterialFilterRows, error: formatMaterialFilterRowsError } =
+      formatIds.length > 0
+        ? await supabase
+            .from("format_material_filter_options")
+            .select("format_material_id,filter_option_id")
+            .in("format_material_id", formatIds)
+        : { data: [] as { format_material_id: string; filter_option_id: string }[], error: null };
+    if (formatMaterialFilterRowsError) throw new Error(formatMaterialFilterRowsError.message);
+
     const formatsBySeries = new Map<string, typeof formats>();
     (formats || []).forEach((f) => {
       const arr = formatsBySeries.get(f.series_id) || [];
@@ -331,6 +346,74 @@ export async function GET() {
       );
     });
 
+    const formatIdToSeriesId = new Map<string, string>();
+    (formats || []).forEach((f) => formatIdToSeriesId.set(f.id, f.series_id));
+
+    type FilterBucket = {
+      finishCut: Set<string>;
+      finishSurface: Set<string>;
+      thickness: Set<string>;
+      style: Set<string>;
+      surfaceType: Set<string>;
+      effect: Set<string>;
+    };
+
+    const createEmptyFilterBucket = (): FilterBucket => ({
+      finishCut: new Set(),
+      finishSurface: new Set(),
+      thickness: new Set(),
+      style: new Set(),
+      surfaceType: new Set(),
+      effect: new Set(),
+    });
+
+    const formatMaterialFiltersMap = new Map<string, FilterBucket>();
+    (formatMaterialFilterRows || []).forEach((row) => {
+      const info = optionsById.get(row.filter_option_id);
+      if (!info) return;
+      const mapped = info.mappedGroup;
+      if (
+        mapped !== "finishCut" &&
+        mapped !== "finishSurface" &&
+        mapped !== "thickness" &&
+        mapped !== "style" &&
+        mapped !== "surfaceType" &&
+        mapped !== "effect"
+      ) {
+        return;
+      }
+      const seriesId = formatIdToSeriesId.get(row.format_material_id);
+      if (!seriesId) return;
+
+      const fmBucket = formatMaterialFiltersMap.get(row.format_material_id) || createEmptyFilterBucket();
+      fmBucket[mapped].add(info.label);
+      formatMaterialFiltersMap.set(row.format_material_id, fmBucket);
+
+      const seriesBucket = seriesFiltersMap.get(seriesId) || createEmptyFilterBucket();
+      seriesBucket[mapped].add(info.label);
+      seriesFiltersMap.set(seriesId, seriesBucket);
+
+      mergeRawTranslationsIntoMap(
+        getOrCreateSeriesTagMap(tagI18nBySeries, seriesId),
+        mapped,
+        info.label,
+        info.translations
+      );
+    });
+
+    const sortEs = (s: Set<string>) => [...s].sort((a, b) => a.localeCompare(b, "es"));
+    function serialiseFormatFilterBucket(b: FilterBucket | undefined) {
+      if (!b) return {} as Record<string, string[]>;
+      const out: Record<string, string[]> = {};
+      if (b.finishCut.size) out.finishCut = sortEs(b.finishCut);
+      if (b.finishSurface.size) out.finishSurface = sortEs(b.finishSurface);
+      if (b.thickness.size) out.thickness = sortEs(b.thickness);
+      if (b.style.size) out.style = sortEs(b.style);
+      if (b.surfaceType.size) out.surfaceType = sortEs(b.surfaceType);
+      if (b.effect.size) out.effect = sortEs(b.effect);
+      return out;
+    }
+
     const products: ProductLike[] = (series || []).map((s) => {
       const seriesFormats = [...(formatsBySeries.get(s.id) || [])].sort((a, b) => {
         const [aw, ah] = parseFormatForSort(a.format_label);
@@ -407,6 +490,7 @@ export async function GET() {
           widthCm: Number(f.width_cm),
           heightCm: Number(f.height_cm),
           articleColors,
+          ...serialiseFormatFilterBucket(formatMaterialFiltersMap.get(f.id)),
         };
       });
 
