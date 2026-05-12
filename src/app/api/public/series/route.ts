@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAssetPublicUrl } from "@/lib/storageUrl";
 
+type CatalogTagI18nMap = Record<string, Partial<Record<"en" | "fr" | "de" | "pt", string>>>;
+
 type ProductLike = {
   id: string;
   name: string;
@@ -21,6 +23,7 @@ type ProductLike = {
   style: string[];
   surfaceType: string[];
   effect: string[];
+  catalogTagI18n?: CatalogTagI18nMap;
   collection?: string;
   featured?: boolean;
   new?: boolean;
@@ -106,6 +109,35 @@ function parseFormatForSort(label: string): [number, number] {
   return [Number(w) || 0, Number(h) || 0];
 }
 
+function mergeRawTranslationsIntoMap(
+  target: CatalogTagI18nMap,
+  category: string,
+  labelEs: string,
+  raw: unknown
+) {
+  const trimmed = (labelEs || "").trim();
+  if (!trimmed || raw === null || raw === undefined) return;
+  if (typeof raw !== "object") return;
+  const key = `${category}::${trimmed}`;
+  const src = raw as Record<string, unknown>;
+  const langs = ["en", "fr", "de", "pt"] as const;
+  const next: Partial<Record<(typeof langs)[number], string>> = { ...(target[key] || {}) };
+  for (const lang of langs) {
+    const v = src[lang];
+    if (typeof v === "string" && v.trim()) next[lang] = v.trim();
+  }
+  if (Object.keys(next).length) target[key] = next;
+}
+
+function getOrCreateSeriesTagMap(map: Map<string, CatalogTagI18nMap>, seriesId: string): CatalogTagI18nMap {
+  let v = map.get(seriesId);
+  if (!v) {
+    v = {};
+    map.set(seriesId, v);
+  }
+  return v;
+}
+
 export async function GET() {
   try {
     const supabase = await createClient();
@@ -131,7 +163,7 @@ export async function GET() {
       supabase
         .from("format_materials")
         .select(
-          "id,series_id,format_label,width_cm,height_cm,status,materials(name,slug,default_technical_properties)"
+          "id,series_id,format_label,width_cm,height_cm,status,materials(name,slug,default_technical_properties,translations)"
         )
         .in("series_id", seriesIds)
         .eq("status", "published"),
@@ -140,7 +172,7 @@ export async function GET() {
         .select("series_id,asset_type,file_key,storage_provider,sort_order")
         .in("series_id", seriesIds),
       supabase.from("series_filter_options").select("series_id,filter_option_id").in("series_id", seriesIds),
-      supabase.from("filter_options").select("id,label,filter_groups(key,name)"),
+      supabase.from("filter_options").select("id,label,slug,translations,filter_groups(key,name)"),
     ]);
 
     if (formatsError) throw new Error(formatsError.message);
@@ -184,14 +216,18 @@ export async function GET() {
       string,
       {
         label: string;
+        slug: string;
         mappedGroup: ReturnType<typeof mapFilterGroup>;
+        translations: unknown;
       }
     >();
     (filterOptions || []).forEach((opt) => {
       const group = Array.isArray(opt.filter_groups) ? opt.filter_groups[0] : opt.filter_groups;
       optionsById.set(opt.id, {
         label: opt.label,
+        slug: String((opt as { slug?: string }).slug || ""),
         mappedGroup: mapFilterGroup(group),
+        translations: (opt as { translations?: unknown }).translations,
       });
     });
 
@@ -206,6 +242,7 @@ export async function GET() {
         effect: Set<string>;
       }
     >();
+    const tagI18nBySeries = new Map<string, CatalogTagI18nMap>();
     (seriesFilterRows || []).forEach((row) => {
       const info = optionsById.get(row.filter_option_id);
       if (!info) return;
@@ -232,6 +269,12 @@ export async function GET() {
         };
       bucket[mapped].add(info.label);
       seriesFiltersMap.set(row.series_id, bucket);
+      mergeRawTranslationsIntoMap(
+        getOrCreateSeriesTagMap(tagI18nBySeries, row.series_id),
+        mapped,
+        info.label,
+        info.translations
+      );
     });
 
     const products: ProductLike[] = (series || []).map((s) => {
@@ -314,6 +357,14 @@ export async function GET() {
       });
 
       const seriesFilters = seriesFiltersMap.get(s.id);
+      const catalogTagI18n: CatalogTagI18nMap = { ...(tagI18nBySeries.get(s.id) || {}) };
+      seriesFormats.forEach((f) => {
+        const matRel = Array.isArray(f.materials) ? f.materials[0] : f.materials;
+        const mat = matRel as { name?: string; translations?: unknown } | undefined;
+        if (mat?.name) {
+          mergeRawTranslationsIntoMap(catalogTagI18n, "materials", mat.name, mat.translations);
+        }
+      });
       return {
         id: s.id,
         name: s.name,
@@ -342,6 +393,7 @@ export async function GET() {
             ? { technicalPanels, catalogPdfs }
             : undefined,
         catalogFormats,
+        ...(Object.keys(catalogTagI18n).length > 0 ? { catalogTagI18n } : {}),
       };
     });
 
