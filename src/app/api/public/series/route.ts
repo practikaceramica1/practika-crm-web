@@ -138,6 +138,60 @@ function getOrCreateSeriesTagMap(map: Map<string, CatalogTagI18nMap>, seriesId: 
   return v;
 }
 
+/** Opciones globales de filtro (para la web: sidebar aunque ninguna serie tenga aún `series_filter_options`). */
+type CatalogFilterOptionsPayload = {
+  finishCut: string[];
+  finishSurface: string[];
+  thickness: string[];
+  style: string[];
+  surfaceType: string[];
+  effect: string[];
+};
+
+const CATALOG_FILTER_OPTION_GROUPS = [
+  "finishCut",
+  "finishSurface",
+  "thickness",
+  "style",
+  "surfaceType",
+  "effect",
+] as const;
+
+function buildCatalogFilterOptionsFromRows(
+  filterOptionsRows: Array<{ label: string; filter_groups: unknown }>
+): CatalogFilterOptionsPayload {
+  const sets: Record<(typeof CATALOG_FILTER_OPTION_GROUPS)[number], Set<string>> = {
+    finishCut: new Set(),
+    finishSurface: new Set(),
+    thickness: new Set(),
+    style: new Set(),
+    surfaceType: new Set(),
+    effect: new Set(),
+  };
+  for (const opt of filterOptionsRows) {
+    const group = Array.isArray(opt.filter_groups) ? opt.filter_groups[0] : opt.filter_groups;
+    const mapped = mapFilterGroup(group as { key?: string | null; name?: string | null });
+    if (
+      !mapped ||
+      !CATALOG_FILTER_OPTION_GROUPS.includes(mapped as (typeof CATALOG_FILTER_OPTION_GROUPS)[number])
+    ) {
+      continue;
+    }
+    const label = (opt.label || "").trim();
+    if (!label) continue;
+    sets[mapped as (typeof CATALOG_FILTER_OPTION_GROUPS)[number]].add(label);
+  }
+  const sortEs = (s: Set<string>) => [...s].sort((a, b) => a.localeCompare(b, "es"));
+  return {
+    finishCut: sortEs(sets.finishCut),
+    finishSurface: sortEs(sets.finishSurface),
+    thickness: sortEs(sets.thickness),
+    style: sortEs(sets.style),
+    surfaceType: sortEs(sets.surfaceType),
+    effect: sortEs(sets.effect),
+  };
+}
+
 export async function GET() {
   try {
     const supabase = await createClient();
@@ -397,7 +451,11 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ products });
+    const catalogFilterOptions = buildCatalogFilterOptionsFromRows(
+      (filterOptions || []) as Array<{ label: string; filter_groups: unknown }>
+    );
+
+    return NextResponse.json({ products, catalogFilterOptions });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected error";
     return NextResponse.json({ error: message }, { status: 500 });
