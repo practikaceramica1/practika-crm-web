@@ -66,6 +66,13 @@ export async function GET(request: Request) {
 
   const counts: Record<string, number> = {};
   const samples: unknown[] = [];
+  let seriesInPublishedCatalog: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    status: string | null;
+    appliedVia: ("serie" | "formato")[];
+  }> = [];
 
   if (targetIds.length) {
     const [{ count: cSeries }, { count: cFmt }, { count: cColor }, colorSamples] = await Promise.all([
@@ -91,6 +98,48 @@ export async function GET(request: Request) {
     counts.series_filter_options = cSeries ?? 0;
     counts.format_material_filter_options = cFmt ?? 0;
     counts.article_color_filter_options = cColor ?? 0;
+
+    const { data: seriesFilterRows } = await supabase
+      .from("series_filter_options")
+      .select("series_id")
+      .in("filter_option_id", targetIds);
+    const directSeriesIds = new Set((seriesFilterRows || []).map((r) => r.series_id).filter(Boolean) as string[]);
+
+    const { data: fmtFilterRows } = await supabase
+      .from("format_material_filter_options")
+      .select("format_material_id")
+      .in("filter_option_id", targetIds);
+    const linkedFormatIds = [...new Set((fmtFilterRows || []).map((r) => r.format_material_id).filter(Boolean))] as string[];
+    const formatSeriesIds = new Set<string>();
+    if (linkedFormatIds.length) {
+      const { data: fmsPub } = await supabase
+        .from("format_materials")
+        .select("series_id")
+        .in("id", linkedFormatIds)
+        .eq("status", "published");
+      for (const f of fmsPub || []) {
+        if (f.series_id) formatSeriesIds.add(f.series_id);
+      }
+    }
+
+    const unionSeriesIds = [...new Set([...directSeriesIds, ...formatSeriesIds])];
+    if (unionSeriesIds.length) {
+      const { data: ser } = await supabase
+        .from("series")
+        .select("id,name,slug,status")
+        .in("id", unionSeriesIds)
+        .order("name");
+      seriesInPublishedCatalog = (ser || []).map((s) => ({
+        id: s.id,
+        name: s.name,
+        slug: s.slug,
+        status: s.status,
+        appliedVia: [
+          ...(directSeriesIds.has(s.id) ? (["serie"] as const) : []),
+          ...(formatSeriesIds.has(s.id) ? (["formato"] as const) : []),
+        ],
+      }));
+    }
 
     const colorIds = (colorSamples.data || []).map((r) => r.article_color_id).filter(Boolean);
     if (colorIds.length) {
@@ -131,13 +180,15 @@ export async function GET(request: Request) {
       "Ninguna opción coincidente mapea a «effect» para la API pública: revisa el grupo (key/nombre) en filter_groups; debe ser reconocible como Efecto."
     );
   }
-  if (targetIds.length && (counts.article_color_filter_options || 0) === 0) {
-    hints.push(
-      "No hay filas en article_color_filter_options para esta opción: en Colores, pulsa «Guardar filtros color» en cada variante donde quieras Madera."
-    );
-  }
-  if (targetIds.length && (counts.series_filter_options || 0) === 0 && (counts.format_material_filter_options || 0) === 0 && (counts.article_color_filter_options || 0) === 0) {
+  const nSeries = counts.series_filter_options || 0;
+  const nFmt = counts.format_material_filter_options || 0;
+  const nColor = counts.article_color_filter_options || 0;
+  if (targetIds.length && nSeries === 0 && nFmt === 0 && nColor === 0) {
     hints.push("La opción no está enlazada en ninguna de las tres tablas de filtros (serie / formato / color).");
+  } else if (targetIds.length && nColor === 0 && (nSeries > 0 || nFmt > 0)) {
+    hints.push(
+      "No hay filas en article_color_filter_options para esta opción (sí hay en serie y/o formato/material). La API pública fusiona esas capas: Madera debería salir en catálogo para las series afectadas. Usa «Guardar filtros color» solo si necesitas Madera distinta por chip de color."
+    );
   }
 
   return NextResponse.json({
@@ -147,6 +198,8 @@ export async function GET(request: Request) {
     filterOptionsMatchingLabel: rows,
     targetFilterOptionIds: targetIds,
     linkCounts: counts,
+    seriesWithThisFilter: seriesInPublishedCatalog.filter((s) => s.status === "published"),
+    seriesWithThisFilterIncludingNonPublished: seriesInPublishedCatalog,
     sampleColorsWithLink: samples,
     hints,
   });
