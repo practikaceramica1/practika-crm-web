@@ -879,12 +879,44 @@ export async function setColorFiltersAction(formData: FormData) {
   await requireAdminUser();
   const supabase = await createClient();
   const articleColorId = z.string().uuid().parse(formData.get("articleColorId"));
-  const optionIds = JSON.parse(String(formData.get("optionIdsJson") || "[]")) as string[];
-  await supabase.from("article_color_filter_options").delete().eq("article_color_id", articleColorId);
+  let optionIds: string[] = [];
+  try {
+    const raw = String(formData.get("optionIdsJson") || "[]");
+    const parsed = JSON.parse(raw) as unknown;
+    optionIds = [...new Set(z.array(z.string().uuid()).parse(parsed))];
+  } catch {
+    throw new Error("Lista de filtros inválida (optionIdsJson).");
+  }
+
+  const colorRow = await supabase
+    .from("article_colors")
+    .select("id, format_material_id")
+    .eq("id", articleColorId)
+    .maybeSingle();
+  if (colorRow.error) throw new Error(colorRow.error.message);
+  if (!colorRow.data) throw new Error("Color no encontrado.");
+
+  const fm = await supabase
+    .from("format_materials")
+    .select("series_id")
+    .eq("id", colorRow.data.format_material_id)
+    .maybeSingle();
+  if (fm.error) throw new Error(fm.error.message);
+  const seriesId = fm.data?.series_id;
+
+  const del = await supabase.from("article_color_filter_options").delete().eq("article_color_id", articleColorId);
+  if (del.error) throw new Error(del.error.message);
+
   if (optionIds.length) {
-    await supabase
-      .from("article_color_filter_options")
-      .insert(optionIds.map((id) => ({ article_color_id: articleColorId, filter_option_id: id })));
+    const ins = await supabase.from("article_color_filter_options").insert(
+      optionIds.map((id) => ({ article_color_id: articleColorId, filter_option_id: id }))
+    );
+    if (ins.error) throw new Error(ins.error.message);
+  }
+
+  if (seriesId) {
+    revalidatePath(`/admin/series/${seriesId}`);
+    revalidatePath("/admin/formats");
   }
 }
 

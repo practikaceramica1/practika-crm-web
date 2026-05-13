@@ -578,10 +578,17 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                           </SubmitButton>
                         </div>
                       </form>
+                      <p className="mt-2 mb-1 text-[11px] leading-snug text-slate-500">
+                        Si no había filtros guardados para este color, se precargan los del formato o de la serie. Pulsa «Guardar filtros color» para grabarlos en la base de datos en este color.
+                      </p>
                       <div className="mt-2">
                         <MultiFilterPicker
                           groups={groupedFilters}
-                          initialSelectedIds={colorFilterIdsByColor[c.id] || formatFilterIdsByFormat[f.id] || seriesFilterIds}
+                          initialSelectedIds={
+                            colorFilterIdsByColor[c.id] ??
+                            formatFilterIdsByFormat[f.id] ??
+                            seriesFilterIds
+                          }
                           hiddenIdName="articleColorId"
                           hiddenIdValue={c.id}
                           saveAction={setColorFiltersAction}
