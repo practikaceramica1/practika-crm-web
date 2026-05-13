@@ -54,6 +54,12 @@ type ProductLike = {
       /** Giro visual en grados en sentido horario (como CSS `rotate(...)` positivo). 0 si la foto ya está bien. */
       imageRotationDegrees?: 0 | 90 | 180 | 270;
       sourceFile?: string;
+      finishCut?: string[];
+      finishSurface?: string[];
+      thickness?: string[];
+      style?: string[];
+      surfaceType?: string[];
+      effect?: string[];
     }>;
   }>;
 };
@@ -260,6 +266,16 @@ export async function GET() {
         : { data: [] as { format_material_id: string; filter_option_id: string }[], error: null };
     if (formatMaterialFilterRowsError) throw new Error(formatMaterialFilterRowsError.message);
 
+    const articleColorIds = (colors || []).map((c) => c.id);
+    const { data: articleColorFilterRows, error: articleColorFilterRowsError } =
+      articleColorIds.length > 0
+        ? await supabase
+            .from("article_color_filter_options")
+            .select("article_color_id,filter_option_id")
+            .in("article_color_id", articleColorIds)
+        : { data: [] as { article_color_id: string; filter_option_id: string }[], error: null };
+    if (articleColorFilterRowsError) throw new Error(articleColorFilterRowsError.message);
+
     const formatsBySeries = new Map<string, typeof formats>();
     (formats || []).forEach((f) => {
       const arr = formatsBySeries.get(f.series_id) || [];
@@ -401,6 +417,46 @@ export async function GET() {
       );
     });
 
+    const articleColorIdToSeriesId = new Map<string, string>();
+    (colors || []).forEach((c) => {
+      const sid = formatIdToSeriesId.get(c.format_material_id);
+      if (sid) articleColorIdToSeriesId.set(c.id, sid);
+    });
+
+    const articleColorFiltersMap = new Map<string, FilterBucket>();
+    (articleColorFilterRows || []).forEach((row) => {
+      const info = optionsById.get(row.filter_option_id);
+      if (!info) return;
+      const mapped = info.mappedGroup;
+      if (
+        mapped !== "finishCut" &&
+        mapped !== "finishSurface" &&
+        mapped !== "thickness" &&
+        mapped !== "style" &&
+        mapped !== "surfaceType" &&
+        mapped !== "effect"
+      ) {
+        return;
+      }
+      const seriesId = articleColorIdToSeriesId.get(row.article_color_id);
+      if (!seriesId) return;
+
+      const colorBucket = articleColorFiltersMap.get(row.article_color_id) || createEmptyFilterBucket();
+      colorBucket[mapped].add(info.label);
+      articleColorFiltersMap.set(row.article_color_id, colorBucket);
+
+      const seriesBucket = seriesFiltersMap.get(seriesId) || createEmptyFilterBucket();
+      seriesBucket[mapped].add(info.label);
+      seriesFiltersMap.set(seriesId, seriesBucket);
+
+      mergeRawTranslationsIntoMap(
+        getOrCreateSeriesTagMap(tagI18nBySeries, seriesId),
+        mapped,
+        info.label,
+        info.translations
+      );
+    });
+
     const sortEs = (s: Set<string>) => [...s].sort((a, b) => a.localeCompare(b, "es"));
     function serialiseFormatFilterBucket(b: FilterBucket | undefined) {
       if (!b) return {} as Record<string, string[]>;
@@ -480,6 +536,7 @@ export async function GET() {
             image: c.sku ? getAssetPublicUrl("r2", c.sku) : undefined,
             imageRotationDegrees,
             sourceFile: c.sku || undefined,
+            ...serialiseFormatFilterBucket(articleColorFiltersMap.get(c.id)),
           };
           });
         return {
