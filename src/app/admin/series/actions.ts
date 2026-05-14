@@ -814,16 +814,20 @@ export async function setArticleColorImageRotationAction(formData: FormData) {
       seriesId: z.string().uuid(),
       articleColorId: z.string().uuid(),
       imageRotationDegrees: z.union([z.literal("0"), z.literal("90"), z.literal("180"), z.literal("270")]),
+      imageWebObjectFit: z.union([z.literal("contain"), z.literal("cover")]),
+      imageWebZoomPercent: z.coerce.number().int().min(25).max(300),
     })
     .safeParse({
       seriesId: formData.get("seriesId"),
       articleColorId: formData.get("articleColorId"),
       imageRotationDegrees: formData.get("imageRotationDegrees"),
+      imageWebObjectFit: formData.get("imageWebObjectFit"),
+      imageWebZoomPercent: formData.get("imageWebZoomPercent"),
     });
-  if (!parsed.success) throw new Error("Datos inválidos para orientación de imagen");
+  if (!parsed.success) throw new Error("Datos inválidos para visualización de imagen en la web");
 
   const degrees = parseInt(parsed.data.imageRotationDegrees, 10);
-  const { seriesId, articleColorId } = parsed.data;
+  const { seriesId, articleColorId, imageWebObjectFit, imageWebZoomPercent } = parsed.data;
 
   const colorResult = await supabase
     .from("article_colors")
@@ -841,7 +845,14 @@ export async function setArticleColorImageRotationAction(formData: FormData) {
   if (fm.error) throw new Error(fm.error.message);
   if (!fm.data || fm.data.series_id !== seriesId) throw new Error("Este color no pertenece a la serie indicada");
 
-  const upd = await supabase.from("article_colors").update({ image_rotation_degrees: degrees }).eq("id", articleColorId);
+  const upd = await supabase
+    .from("article_colors")
+    .update({
+      image_rotation_degrees: degrees,
+      image_web_object_fit: imageWebObjectFit,
+      image_web_zoom_percent: imageWebZoomPercent,
+    })
+    .eq("id", articleColorId);
   if (upd.error) throw new Error(upd.error.message);
 
   revalidatePath(`/admin/series/${seriesId}`);

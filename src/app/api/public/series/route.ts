@@ -54,6 +54,10 @@ type ProductLike = {
       image?: string;
       /** Giro visual en grados en sentido horario (como CSS `rotate(...)` positivo). 0 si la foto ya está bien. */
       imageRotationDegrees?: 0 | 90 | 180 | 270;
+      /** Encaje en el marco del formato en la web: contain (pieza entera) o cover (rellenar, puede recortar). */
+      imageWebObjectFit?: "contain" | "cover";
+      /** Zoom % en la web (100 = sin escala extra; 25–300). */
+      imageWebZoomPercent?: number;
       sourceFile?: string;
       finishCut?: string[];
       finishSurface?: string[];
@@ -175,6 +179,7 @@ export async function GET() {
       { data: assets, error: assetsError },
       { data: seriesFilterRows, error: seriesFilterRowsError },
       { data: filterOptions, error: filterOptionsError },
+      { data: filterGroupsRows, error: filterGroupsError },
     ] = await Promise.all([
       supabase
         .from("format_materials")
@@ -188,20 +193,27 @@ export async function GET() {
         .select("series_id,asset_type,file_key,storage_provider,sort_order")
         .in("series_id", seriesIds),
       supabase.from("series_filter_options").select("series_id,filter_option_id").in("series_id", seriesIds),
-      supabase.from("filter_options").select("id,label,slug,translations,filter_groups(key,name)"),
+      supabase.from("filter_options").select("id,label,slug,translations,filter_group_id,filter_groups(key,name)"),
+      supabase.from("filter_groups").select("id,key,name"),
     ]);
 
     if (formatsError) throw new Error(formatsError.message);
     if (assetsError) throw new Error(assetsError.message);
     if (seriesFilterRowsError) throw new Error(seriesFilterRowsError.message);
     if (filterOptionsError) throw new Error(filterOptionsError.message);
+    if (filterGroupsError) throw new Error(filterGroupsError.message);
+
+    const filterGroupsById = new Map<string, { key?: string | null; name?: string | null }>();
+    for (const g of filterGroupsRows || []) {
+      if (g?.id) filterGroupsById.set(g.id, { key: g.key, name: g.name });
+    }
 
     const formatIds = (formats || []).map((f) => f.id);
     const { data: colors, error: colorsError } =
       formatIds.length > 0
         ? await supabase
             .from("article_colors")
-            .select("id,format_material_id,color_name,color_slug,variant_type,sku,status,image_rotation_degrees")
+            .select("id,format_material_id,color_name,color_slug,variant_type,sku,status,image_rotation_degrees,image_web_object_fit,image_web_zoom_percent")
             .in("format_material_id", formatIds)
             .eq("status", "published")
         : { data: [], error: null };
@@ -257,7 +269,11 @@ export async function GET() {
       }
     >();
     (filterOptions || []).forEach((opt) => {
-      const group = Array.isArray(opt.filter_groups) ? opt.filter_groups[0] : opt.filter_groups;
+      const embedded = Array.isArray(opt.filter_groups) ? opt.filter_groups[0] : opt.filter_groups;
+      const fgId = (opt as { filter_group_id?: string }).filter_group_id;
+      const group =
+        embedded ??
+        (fgId && filterGroupsById.has(fgId) ? filterGroupsById.get(fgId)! : null);
       optionsById.set(opt.id, {
         label: opt.label,
         slug: String((opt as { slug?: string }).slug || ""),
@@ -474,6 +490,14 @@ export async function GET() {
             const imageRotationDegrees: 0 | 90 | 180 | 270 = [0, 90, 180, 270].includes(rawDeg)
               ? (rawDeg as 0 | 90 | 180 | 270)
               : 0;
+            const rawFit = String((c as { image_web_object_fit?: string | null }).image_web_object_fit || "")
+              .trim()
+              .toLowerCase();
+            const imageWebObjectFit: "contain" | "cover" = rawFit === "cover" ? "cover" : "contain";
+            const rawZoom = Number((c as { image_web_zoom_percent?: number | null }).image_web_zoom_percent);
+            const imageWebZoomPercent = Number.isFinite(rawZoom)
+              ? Math.min(300, Math.max(25, Math.round(rawZoom)))
+              : 100;
             return {
             id: c.id,
             name: c.color_name!,
@@ -485,6 +509,8 @@ export async function GET() {
               : "regular") as "regular" | "decor" | "relieve" | "c3",
             image: c.sku ? getAssetPublicUrl("r2", c.sku) : undefined,
             imageRotationDegrees,
+            imageWebObjectFit,
+            imageWebZoomPercent,
             sourceFile: c.sku || undefined,
             ...serialiseFormatFilterBucket(articleColorFiltersMap.get(c.id)),
           };

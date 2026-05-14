@@ -129,7 +129,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
     needsColors && formatIds.length > 0
       ? await supabase
           .from("article_colors")
-          .select("id,color_name,variant_type,format_material_id,sku,image_rotation_degrees")
+          .select("id,color_name,variant_type,format_material_id,sku,image_rotation_degrees,image_web_object_fit,image_web_zoom_percent")
           .in("format_material_id", formatIds)
           .order("created_at", { ascending: true })
       : { data: [], error: null };
@@ -213,6 +213,8 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
     format_material_id: string;
     sku?: string | null;
     image_rotation_degrees?: number | null;
+    image_web_object_fit?: string | null;
+    image_web_zoom_percent?: number | null;
   }>;
   const colorsByFormat = colorRows.reduce<Record<string, typeof colorRows>>((acc, c) => {
     if (!acc[c.format_material_id]) acc[c.format_material_id] = [];
@@ -521,6 +523,13 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                       [0, 90, 180, 270].includes(c.image_rotation_degrees)
                         ? c.image_rotation_degrees
                         : 0;
+                    const webObjectFit =
+                      c.image_web_object_fit === "cover" ? "cover" : "contain";
+                    const zoomPercent =
+                      typeof c.image_web_zoom_percent === "number" &&
+                      Number.isFinite(c.image_web_zoom_percent)
+                        ? Math.min(300, Math.max(25, Math.round(c.image_web_zoom_percent)))
+                        : 100;
                     return (
                     <article key={c.id} className="rounded-lg border border-slate-200 p-3">
                       <form action={renameArticleColorAction} className="space-y-2">
@@ -535,12 +544,14 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                       {c.sku ? (
                         <div className="mt-2">
                           {colorImageUrl ? (
-                            <div className="flex min-h-[5rem] w-full items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50">
+                            <div className="flex h-36 w-full items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50">
                               <img
                                 src={colorImageUrl}
                                 alt={c.color_name}
-                                className="max-h-32 max-w-full object-contain"
-                                style={{ transform: `rotate(${rotationDeg}deg)` }}
+                                className={`h-full w-full ${webObjectFit === "cover" ? "object-cover" : "object-contain"}`}
+                                style={{
+                                  transform: `rotate(${rotationDeg}deg) scale(${zoomPercent / 100})`,
+                                }}
                                 loading="lazy"
                               />
                             </div>
@@ -555,17 +566,21 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                           Sin imagen de color
                         </div>
                       )}
-                      <form action={setArticleColorImageRotationAction} className="mt-2 space-y-1 rounded-md border border-slate-100 bg-slate-50/80 p-2">
+                      <form action={setArticleColorImageRotationAction} className="mt-2 space-y-2 rounded-md border border-slate-100 bg-slate-50/80 p-2">
                         <input type="hidden" name="seriesId" value={series.id} />
                         <input type="hidden" name="articleColorId" value={c.id} />
-                        <label className="block text-xs font-medium text-slate-600" htmlFor={`rot-${c.id}`}>
-                          Orientación en la web (giro visual, no modifica el archivo)
-                        </label>
-                        <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-xs font-medium text-slate-600">Visualización en la web</p>
+                        <p className="text-[11px] leading-snug text-slate-500">
+                          No modifica el archivo; solo cómo se muestra en practikaceramica.com (marco del formato).
+                        </p>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-600" htmlFor={`rot-${c.id}`}>
+                            Orientación (giro)
+                          </label>
                           <select
                             id={`rot-${c.id}`}
                             name="imageRotationDegrees"
-                            className="input max-w-[12rem] flex-1 text-xs"
+                            className="input w-full text-xs"
                             defaultValue={String(rotationDeg)}
                           >
                             <option value="0">0° — tal cual la foto</option>
@@ -573,10 +588,43 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                             <option value="180">180°</option>
                             <option value="270">270° (90° antihorario)</option>
                           </select>
-                          <SubmitButton className="btn-secondary text-xs" pendingText="Guardando…">
-                            Guardar orientación
-                          </SubmitButton>
                         </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-600" htmlFor={`fit-${c.id}`}>
+                            Encaje / zoom en el marco
+                          </label>
+                          <select
+                            id={`fit-${c.id}`}
+                            name="imageWebObjectFit"
+                            className="input w-full text-xs"
+                            defaultValue={webObjectFit}
+                          >
+                            <option value="contain">Encajar pieza completa (sin recortar)</option>
+                            <option value="cover">Ampliar y rellenar el marco (puede recortar bordes)</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-[11px] font-medium text-slate-600" htmlFor={`zoom-${c.id}`}>
+                            Zoom en la web (%)
+                          </label>
+                          <input
+                            id={`zoom-${c.id}`}
+                            type="number"
+                            name="imageWebZoomPercent"
+                            min={25}
+                            max={300}
+                            step={5}
+                            defaultValue={zoomPercent}
+                            className="input w-full text-xs"
+                          />
+                          <p className="text-[10px] leading-snug text-slate-400">
+                            100 = tamaño base con el encaje elegido; sube el % para acercar la pieza en el marco (puede
+                            recortarse).
+                          </p>
+                        </div>
+                        <SubmitButton className="btn-secondary text-xs" pendingText="Guardando…">
+                          Guardar visualización web
+                        </SubmitButton>
                       </form>
                       <p className="mt-2 mb-1 text-[11px] leading-snug text-slate-500">
                         Si no había filtros guardados para este color, se precargan los del formato o de la serie. Pulsa «Guardar filtros color» para grabarlos en la base de datos en este color.
