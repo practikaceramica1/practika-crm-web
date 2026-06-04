@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireAdminUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
@@ -88,6 +89,7 @@ export async function createFilterOptionAction(formData: FormData) {
   );
   if (error) throw new Error(error.message);
   revalidatePath("/admin/filters");
+  redirect(`/admin/filters?groupId=${encodeURIComponent(parsed.data.groupId)}`);
 }
 
 export async function updateFilterOptionAction(formData: FormData) {
