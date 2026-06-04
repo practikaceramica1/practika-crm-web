@@ -10,12 +10,13 @@ import { slugify } from "@/lib/text";
 const groupSchema = z.object({
   key: z.string().min(2),
   name: z.string().min(2),
-  sortOrder: z.coerce.number().int().default(0),
 });
 const optionSchema = z.object({
   groupId: z.string().uuid(),
   label: z.string().min(1),
-  sortOrder: z.coerce.number().int().default(0),
+});
+const reorderGroupsSchema = z.object({
+  orderedIdsJson: z.string().min(2),
 });
 const updateOptionSchema = z.object({
   optionId: z.string().uuid(),
@@ -51,15 +52,26 @@ export async function createFilterGroupAction(formData: FormData) {
   const parsed = groupSchema.safeParse({
     key: formData.get("key"),
     name: formData.get("name"),
-    sortOrder: formData.get("sortOrder"),
   });
   if (!parsed.success) throw new Error("Datos inválidos");
   if (parsed.data.key.trim() === "formats") {
     throw new Error("El grupo formats se genera desde formatos creados.");
   }
 
+  const { data: maxRow } = await supabase
+    .from("filter_groups")
+    .select("sort_order")
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const nextSort = (maxRow?.sort_order ?? 0) + 1;
+
   const { error } = await supabase.from("filter_groups").upsert(
-    { key: parsed.data.key.trim(), name: parsed.data.name.trim(), sort_order: parsed.data.sortOrder },
+    {
+      key: parsed.data.key.trim(),
+      name: parsed.data.name.trim(),
+      sort_order: nextSort,
+    },
     { onConflict: "key" }
   );
   if (error) throw new Error(error.message);
@@ -72,7 +84,6 @@ export async function createFilterOptionAction(formData: FormData) {
   const parsed = optionSchema.safeParse({
     groupId: formData.get("groupId"),
     label: formData.get("label"),
-    sortOrder: formData.get("sortOrder"),
   });
   if (!parsed.success) throw new Error("Datos inválidos");
 
@@ -82,7 +93,7 @@ export async function createFilterOptionAction(formData: FormData) {
       filter_group_id: parsed.data.groupId,
       label: parsed.data.label.trim(),
       slug,
-      sort_order: parsed.data.sortOrder,
+      sort_order: 0,
       is_active: true,
     },
     { onConflict: "filter_group_id,slug" }
@@ -129,5 +140,47 @@ export async function deleteFilterOptionAction(formData: FormData) {
 
   const { error } = await supabase.from("filter_options").delete().eq("id", parsed.data.optionId);
   if (error) throw new Error(error.message);
+  revalidatePath("/admin/filters");
+}
+
+/** Reordena grupos visibles en admin (el grupo `formats` conserva su hueco en BD). */
+export async function reorderFilterGroupsAction(formData: FormData) {
+  await requireAdminUser();
+  const parsed = reorderGroupsSchema.safeParse({ orderedIdsJson: formData.get("orderedIdsJson") });
+  if (!parsed.success) throw new Error("Orden no válido");
+
+  let orderedIds: string[];
+  try {
+    orderedIds = JSON.parse(parsed.data.orderedIdsJson) as string[];
+  } catch {
+    throw new Error("Orden no válido");
+  }
+  if (!Array.isArray(orderedIds) || !orderedIds.every((id) => z.string().uuid().safeParse(id).success)) {
+    throw new Error("Orden no válido");
+  }
+
+  const supabase = await createClient();
+  const { data: allGroups, error: loadErr } = await supabase
+    .from("filter_groups")
+    .select("id,key,sort_order")
+    .order("sort_order");
+  if (loadErr) throw new Error(loadErr.message);
+
+  const formatsGroup = (allGroups || []).find((g) => g.key === "formats");
+  const visibleDb = (allGroups || []).filter((g) => g.key !== "formats");
+  const visibleSet = new Set(visibleDb.map((g) => g.id));
+  if (orderedIds.length !== visibleSet.size || !orderedIds.every((id) => visibleSet.has(id))) {
+    throw new Error("Lista de grupos incompleta.");
+  }
+
+  const formatsSlot = formatsGroup?.sort_order ?? visibleDb.length + 1;
+  let slot = 1;
+  for (const id of orderedIds) {
+    if (slot === formatsSlot) slot++;
+    const u = await supabase.from("filter_groups").update({ sort_order: slot }).eq("id", id);
+    if (u.error) throw new Error(u.error.message);
+    slot++;
+  }
+
   revalidatePath("/admin/filters");
 }
