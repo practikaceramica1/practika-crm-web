@@ -18,7 +18,7 @@ function mapFilterKey(key: string):
   | "colors"
   | null {
   const k = normalizeKey(key);
-  if (k === "finishcut" || k === "acabadocorte") return "finishCut";
+  if (k === "finishcut" || k === "acabadocorte" || k === "rectificado") return "finishCut";
   if (k === "finishsurface" || k === "acabadosuperficial") return "finishSurface";
   if (k === "thickness" || k === "espesor") return "thickness";
   if (k === "style" || k === "estilo" || k === "estilos") return "style";
@@ -46,6 +46,7 @@ function mapFilterGroupFromNameLabel(name: string):
   if (tokens.some((t) => t === "estilo" || t === "estilos")) return "style";
   if (tokens.some((t) => t === "efecto" || t === "efectos")) return "effect";
   if (tokens.some((t) => t === "espesor")) return "thickness";
+  if (tokens.some((t) => t === "rectificado")) return "finishCut";
   if (tokens.some((t) => t === "corte") && tokens.includes("acabado")) return "finishCut";
   if (tokens.some((t) => t === "superficie") && tokens.includes("acabado")) return "finishSurface";
   if (tokens.some((t) => t === "pavimento" || t === "revestimiento")) return "surfaceType";

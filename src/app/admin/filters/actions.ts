@@ -16,6 +16,33 @@ const optionSchema = z.object({
   label: z.string().min(1),
   sortOrder: z.coerce.number().int().default(0),
 });
+const updateOptionSchema = z.object({
+  optionId: z.string().uuid(),
+  label: z.string().min(1),
+  translationsJson: z.string().optional(),
+});
+const deleteOptionSchema = z.object({
+  optionId: z.string().uuid(),
+});
+
+function parseTranslationsJson(raw: string | undefined): Record<string, string> | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error("Traducciones: JSON inválido (ej. {\"en\":\"Silky\"})");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Traducciones: debe ser un objeto JSON");
+  }
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof v === "string" && v.trim()) out[k] = v.trim();
+  }
+  return out;
+}
 
 export async function createFilterGroupAction(formData: FormData) {
   await requireAdminUser();
@@ -59,6 +86,46 @@ export async function createFilterOptionAction(formData: FormData) {
     },
     { onConflict: "filter_group_id,slug" }
   );
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/filters");
+}
+
+export async function updateFilterOptionAction(formData: FormData) {
+  await requireAdminUser();
+  const supabase = await createClient();
+  const parsed = updateOptionSchema.safeParse({
+    optionId: formData.get("optionId"),
+    label: formData.get("label"),
+    translationsJson: formData.get("translationsJson")?.toString(),
+  });
+  if (!parsed.success) throw new Error("Datos inválidos");
+
+  const translations = parseTranslationsJson(parsed.data.translationsJson);
+  const payload: {
+    label: string;
+    slug: string;
+    translations?: Record<string, string>;
+  } = {
+    label: parsed.data.label.trim(),
+    slug: slugify(parsed.data.label),
+  };
+  if (translations !== null) payload.translations = translations;
+
+  const { error } = await supabase
+    .from("filter_options")
+    .update(payload)
+    .eq("id", parsed.data.optionId);
+  if (error) throw new Error(error.message);
+  revalidatePath("/admin/filters");
+}
+
+export async function deleteFilterOptionAction(formData: FormData) {
+  await requireAdminUser();
+  const supabase = await createClient();
+  const parsed = deleteOptionSchema.safeParse({ optionId: formData.get("optionId") });
+  if (!parsed.success) throw new Error("Datos inválidos");
+
+  const { error } = await supabase.from("filter_options").delete().eq("id", parsed.data.optionId);
   if (error) throw new Error(error.message);
   revalidatePath("/admin/filters");
 }

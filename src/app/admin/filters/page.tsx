@@ -3,13 +3,21 @@ import { FormPendingSection } from "@/components/admin/FormPendingSection";
 import { SetupRequired } from "@/components/admin/SetupRequired";
 import { isSchemaNotReadyError } from "@/lib/supabase/error-handling";
 import { SubmitButton } from "@/components/admin/SubmitButton";
-import { createFilterGroupAction, createFilterOptionAction } from "./actions";
+import {
+  createFilterGroupAction,
+  createFilterOptionAction,
+  deleteFilterOptionAction,
+  updateFilterOptionAction,
+} from "./actions";
 
 export default async function FiltersPage() {
   const supabase = await createClient();
   const [{ data: groups, error: groupsError }, { data: options, error: optionsError }] = await Promise.all([
     supabase.from("filter_groups").select("id,key,name,sort_order").order("sort_order"),
-    supabase.from("filter_options").select("id,label,filter_group_id,is_active").order("label"),
+    supabase
+      .from("filter_options")
+      .select("id,label,filter_group_id,is_active,translations")
+      .order("label"),
   ]);
   if (isSchemaNotReadyError(groupsError) || isSchemaNotReadyError(optionsError)) {
     return <SetupRequired missing="public.filter_groups / public.filter_options" migration="supabase/migrations/20260331_0001_crm_init.sql" />;
@@ -27,7 +35,10 @@ export default async function FiltersPage() {
     <main className="space-y-6">
       <section className="card p-5">
         <h1 className="text-2xl font-semibold">Filtros</h1>
-        <p className="text-sm text-slate-500">Estructura agrupada y fácil de editar. Formatos se gestionan aparte.</p>
+        <p className="text-sm text-slate-500">
+          Estructura agrupada y fácil de editar. Formatos se gestionan aparte. El español es la etiqueta;
+          traducciones opcionales (JSON) para EN/FR/DE/PT en la web.
+        </p>
       </section>
       <section className="grid gap-4 xl:grid-cols-2">
         <article className="card p-5">
@@ -64,13 +75,55 @@ export default async function FiltersPage() {
               <span className="text-xs text-slate-500">{group.options.length} opciones</span>
             </div>
             <p className="text-xs text-slate-500">{group.key}</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {group.options.map((opt) => (
-                <span key={opt.id} className={`rounded-full px-2 py-1 text-xs ${opt.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                  {opt.label}
-                </span>
-              ))}
-            </div>
+            <ul className="mt-3 space-y-2">
+              {group.options.map((opt) => {
+                const translations =
+                  opt.translations && typeof opt.translations === "object" && !Array.isArray(opt.translations)
+                    ? JSON.stringify(opt.translations, null, 0)
+                    : "";
+                return (
+                  <li
+                    key={opt.id}
+                    className={`rounded-lg border p-2 ${opt.is_active ? "border-emerald-100 bg-emerald-50/30" : "border-slate-200 bg-slate-50"}`}
+                  >
+                    <form action={updateFilterOptionAction} className="space-y-2">
+                      <FormPendingSection className="space-y-2">
+                        <input type="hidden" name="optionId" value={opt.id} />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            name="label"
+                            className="input min-w-[8rem] flex-1 text-sm"
+                            defaultValue={opt.label}
+                            required
+                          />
+                          <SubmitButton className="btn-primary text-xs" pendingText="Guardando...">
+                            Renombrar
+                          </SubmitButton>
+                        </div>
+                        <input
+                          name="translationsJson"
+                          className="input font-mono text-xs"
+                          placeholder='{"en":"Silky","fr":"Silky"}'
+                          defaultValue={translations}
+                          title="Opcional. Dejar vacío para no cambiar traducciones."
+                        />
+                      </FormPendingSection>
+                    </form>
+                    <form action={deleteFilterOptionAction} className="mt-2">
+                      <input type="hidden" name="optionId" value={opt.id} />
+                      <SubmitButton
+                        className="text-xs text-red-600 hover:underline"
+                        showSpinner={false}
+                        pendingText="Eliminando..."
+                        confirmMessage={`¿Eliminar «${opt.label}»? Se quitará de series, formatos y colores vinculados.`}
+                      >
+                        Eliminar
+                      </SubmitButton>
+                    </form>
+                  </li>
+                );
+              })}
+            </ul>
           </article>
         ))}
       </section>

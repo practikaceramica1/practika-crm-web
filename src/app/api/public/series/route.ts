@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAssetPublicUrl } from "@/lib/storageUrl";
 import { mapFilterGroup } from "@/lib/catalogFilterGroupMap";
+import { canonicalFormatKey, formatLabelFromCm } from "@/lib/formatDisplay";
 
 type CatalogTagI18nMap = Record<string, Partial<Record<"en" | "fr" | "de" | "pt", string>>>;
 
@@ -444,7 +445,7 @@ export async function GET() {
         return ah - bh;
       });
       const materialsSet = new Set<string>();
-      const formatsSet = new Set<string>();
+      const formatsByCanonical = new Map<string, string>();
       const regularSet = new Set<string>();
       const decorSet = new Set<string>();
       const relieveSet = new Set<string>();
@@ -453,7 +454,14 @@ export async function GET() {
       seriesFormats.forEach((f) => {
         const material = Array.isArray(f.materials) ? f.materials[0] : f.materials;
         if (material?.name) materialsSet.add(material.name);
-        if (f.format_label) formatsSet.add(f.format_label);
+        const w = Number(f.width_cm);
+        const h = Number(f.height_cm);
+        if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+          const label = formatLabelFromCm(w, h);
+          formatsByCanonical.set(canonicalFormatKey(label), label);
+        } else if (f.format_label) {
+          formatsByCanonical.set(canonicalFormatKey(f.format_label), f.format_label);
+        }
         const formatColors = colorsByFormat.get(f.id) || [];
         formatColors.forEach((c) => {
           if (!c.color_name) return;
@@ -515,8 +523,15 @@ export async function GET() {
             ...serialiseFormatFilterBucket(articleColorFiltersMap.get(c.id)),
           };
           });
+        const formatLabel =
+          Number.isFinite(Number(f.width_cm)) &&
+          Number.isFinite(Number(f.height_cm)) &&
+          Number(f.width_cm) > 0 &&
+          Number(f.height_cm) > 0
+            ? formatLabelFromCm(Number(f.width_cm), Number(f.height_cm))
+            : f.format_label;
         return {
-          formatLabel: f.format_label,
+          formatLabel,
           formatMaterialId: f.id,
           materialSlug: material?.slug ?? "",
           materialName: material?.name ?? "",
@@ -548,7 +563,12 @@ export async function GET() {
         relieveColors: [...relieveSet].sort((a, b) => a.localeCompare(b, "es")),
         c3Colors: [...c3Set].sort((a, b) => a.localeCompare(b, "es")),
         materials: [...materialsSet].sort((a, b) => a.localeCompare(b, "es")),
-        formats: [...formatsSet],
+        formats: [...formatsByCanonical.values()].sort((a, b) => {
+          const [aw, ah] = parseFormatForSort(a);
+          const [bw, bh] = parseFormatForSort(b);
+          if (aw !== bw) return aw - bw;
+          return ah - bh;
+        }),
         finishCut: [...(seriesFilters?.finishCut || new Set<string>())].sort((a, b) => a.localeCompare(b, "es")),
         finishSurface: [...(seriesFilters?.finishSurface || new Set<string>())].sort((a, b) => a.localeCompare(b, "es")),
         thickness: [...(seriesFilters?.thickness || new Set<string>())].sort((a, b) => a.localeCompare(b, "es")),
