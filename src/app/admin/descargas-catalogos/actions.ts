@@ -7,7 +7,12 @@ import { requireAdminUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { errorToUserMessage } from "@/lib/errorMessage";
 import { deleteObjectFromR2, signR2PutObjectUrl } from "@/lib/uploads/r2";
-import type { CatalogTranslations, DownloadCatalogItemRow, SignDownloadCatalogPdfResult } from "./downloadCatalogTypes";
+import type {
+  CatalogTranslations,
+  DownloadCatalogItemRow,
+  RegisterDownloadCatalogItemResult,
+  SignDownloadCatalogPdfResult,
+} from "./downloadCatalogTypes";
 import { CATALOG_EXTRA_LANGS } from "./downloadCatalogTypes";
 
 function isExpectedDownloadCatalogKey(itemId: string, fileKey: string) {
@@ -106,59 +111,76 @@ function parseTranslationsJson(raw: string | null): CatalogTranslations | null {
   }
 }
 
-export async function registerNewDownloadCatalogItemAction(formData: FormData) {
+export async function registerNewDownloadCatalogItemAction(
+  formData: FormData
+): Promise<RegisterDownloadCatalogItemResult> {
   await requireAdminUser();
-  const parsed = z
-    .object({
-      itemId: z.string().uuid(),
-      fileKey: z.string().min(12),
-      title: z.string().min(1).max(240),
-      subtitle: z.string().max(240).optional(),
-      fileSizeHint: z.string().max(32).optional(),
-      translationsJson: z.string().optional(),
-    })
-    .safeParse({
-      itemId: formData.get("itemId"),
-      fileKey: formData.get("fileKey"),
-      title: formData.get("title"),
-      subtitle: formData.get("subtitle") ?? "",
-      fileSizeHint: formData.get("fileSizeHint") ?? "",
-      translationsJson: formData.get("translationsJson") ?? "",
-    });
-  if (!parsed.success) throw new Error("Datos incompletos o no válidos.");
-  if (!isExpectedDownloadCatalogKey(parsed.data.itemId, parsed.data.fileKey)) {
-    throw new Error("La ruta del archivo no es válida.");
+  try {
+    const parsed = z
+      .object({
+        itemId: z.string().uuid(),
+        fileKey: z.string().min(12),
+        title: z.string().min(1).max(240),
+        subtitle: z.string().max(240).optional(),
+        fileSizeHint: z.string().max(32).optional(),
+        translationsJson: z.string().optional(),
+      })
+      .safeParse({
+        itemId: formData.get("itemId"),
+        fileKey: formData.get("fileKey"),
+        title: formData.get("title"),
+        subtitle: formData.get("subtitle") ?? "",
+        fileSizeHint: formData.get("fileSizeHint") ?? "",
+        translationsJson: formData.get("translationsJson") ?? "",
+      });
+    if (!parsed.success) return { ok: false, message: "Datos incompletos o no válidos." };
+    if (!isExpectedDownloadCatalogKey(parsed.data.itemId, parsed.data.fileKey)) {
+      return { ok: false, message: "La ruta del archivo no es válida." };
+    }
+
+    const translations = parseTranslationsJson(parsed.data.translationsJson ?? null);
+
+    const supabase = await createClient();
+    const { data: last } = await supabase
+      .from("download_catalog_items")
+      .select("sort_order")
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const nextOrder = Number(last?.sort_order || 0) + 1;
+
+    const ins = await supabase
+      .from("download_catalog_items")
+      .insert({
+        id: parsed.data.itemId,
+        title: parsed.data.title.trim(),
+        subtitle: parsed.data.subtitle?.trim() || null,
+        storage_provider: "r2",
+        file_key: parsed.data.fileKey,
+        mime_type: "application/pdf",
+        file_size_hint: parsed.data.fileSizeHint?.trim() || null,
+        sort_order: nextOrder,
+        status: "draft",
+        translations,
+      })
+      .select("id")
+      .single();
+    if (ins.error) {
+      const msg = errorToUserMessage(ins.error);
+      if (msg.toLowerCase().includes("row-level security")) {
+        return {
+          ok: false,
+          message:
+            "No tienes permiso para crear catálogos en la base de datos. Aplica la migración supabase/migrations/20260710_download_catalog_items_rls.sql en Supabase.",
+        };
+      }
+      return { ok: false, message: msg };
+    }
+    revalidatePath("/admin/descargas-catalogos");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: errorToUserMessage(e) };
   }
-
-  const translations = parseTranslationsJson(parsed.data.translationsJson ?? null);
-
-  const supabase = await createClient();
-  const { data: last } = await supabase
-    .from("download_catalog_items")
-    .select("sort_order")
-    .order("sort_order", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const nextOrder = Number(last?.sort_order || 0) + 1;
-
-  const ins = await supabase
-    .from("download_catalog_items")
-    .insert({
-      id: parsed.data.itemId,
-      title: parsed.data.title.trim(),
-      subtitle: parsed.data.subtitle?.trim() || null,
-      storage_provider: "r2",
-      file_key: parsed.data.fileKey,
-      mime_type: "application/pdf",
-      file_size_hint: parsed.data.fileSizeHint?.trim() || null,
-      sort_order: nextOrder,
-      status: "draft",
-      translations,
-    })
-    .select("id")
-    .single();
-  if (ins.error) throw new Error(ins.error.message);
-  revalidatePath("/admin/descargas-catalogos");
 }
 
 export async function updateDownloadCatalogItemMetaAction(formData: FormData) {

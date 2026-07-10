@@ -408,12 +408,14 @@ export default function DownloadCatalogAdminClient({ initialItems }: { initialIt
         body: file,
       });
       if (!put.ok) throw new Error(`Error al subir (HTTP ${put.status})`);
-      const titleDefault = file.name.replace(/\.pdf$/i, "").replace(/[-_]+/g, " ");
+      const titleDefault = file.name.replace(/\.pdf$/i, "").replace(/[-_]+/g, " ").trim();
+      if (!titleDefault) throw new Error("El nombre del PDF no es válido.");
       const regFd = new FormData();
       regFd.set("itemId", signed.itemId);
       regFd.set("fileKey", signed.fileKey);
-      regFd.set("title", titleDefault);
-      await registerNewDownloadCatalogItemAction(regFd);
+      regFd.set("title", titleDefault.slice(0, 240));
+      const registered = await registerNewDownloadCatalogItemAction(regFd);
+      if (!registered.ok) throw new Error(registered.message);
       setSnackbar({ type: "success", message: "PDF añadido (borrador). Edita el título, traducciones y publícalo." });
       router.refresh();
     } catch (e) {

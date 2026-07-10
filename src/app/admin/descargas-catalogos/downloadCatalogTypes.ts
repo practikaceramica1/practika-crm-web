@@ -22,3 +22,5 @@ export type DownloadCatalogItemRow = {
 export type SignDownloadCatalogPdfResult =
   | { ok: true; putUrl: string; fileKey: string; contentType: string; itemId: string }
   | { ok: false; message: string };
+
+export type RegisterDownloadCatalogItemResult = { ok: true } | { ok: false; message: string };
