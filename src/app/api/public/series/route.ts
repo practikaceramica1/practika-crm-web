@@ -41,6 +41,17 @@ type ProductLike = {
     materialName: string;
     widthCm: number;
     heightCm: number;
+    characteristic?: string;
+    packing?: {
+      packingId: string;
+      supplier: string | null;
+      piecesPerBox: number;
+      m2PerBox: number;
+      kgPerBox: number;
+      boxesPerPallet: number;
+      m2PerPallet: number;
+      kgPerPallet: number;
+    } | null;
     finishCut?: string[];
     finishSurface?: string[];
     thickness?: string[];
@@ -185,7 +196,7 @@ export async function GET() {
       supabase
         .from("format_materials")
         .select(
-          "id,series_id,format_label,width_cm,height_cm,status,materials(name,slug,default_technical_properties,translations)"
+          "id,series_id,format_label,width_cm,height_cm,status,selected_packing_id,materials(name,slug,default_technical_properties,translations),catalog_format_materials(characteristic)"
         )
         .in("series_id", seriesIds)
         .eq("status", "published"),
@@ -210,6 +221,31 @@ export async function GET() {
     }
 
     const formatIds = (formats || []).map((f) => f.id);
+    const packingIds = [
+      ...new Set(
+        (formats || [])
+          .map((f) => (f as { selected_packing_id?: string | null }).selected_packing_id)
+          .filter((id): id is string => Boolean(id))
+      ),
+    ];
+    const { data: selectedPackings } =
+      packingIds.length > 0
+        ? await supabase
+            .from("format_packings")
+            .select("id,supplier,pieces_box,m2_box,kg_box,boxes_pallet,m2_pallet,kg_pallet")
+            .in("id", packingIds)
+        : { data: [] as Array<{
+            id: string;
+            supplier: string | null;
+            pieces_box: number;
+            m2_box: number;
+            kg_box: number;
+            boxes_pallet: number;
+            m2_pallet: number;
+            kg_pallet: number;
+          }> };
+    const packingById = new Map((selectedPackings || []).map((p) => [p.id, p]));
+
     const { data: colors, error: colorsError } =
       formatIds.length > 0
         ? await supabase
@@ -490,6 +526,14 @@ export async function GET() {
 
       const catalogFormats = seriesFormats.map((f) => {
         const material = Array.isArray(f.materials) ? f.materials[0] : f.materials;
+        const catalogMeta = Array.isArray(
+          (f as { catalog_format_materials?: unknown }).catalog_format_materials
+        )
+          ? (f as { catalog_format_materials: Array<{ characteristic?: string }> }).catalog_format_materials[0]
+          : (f as { catalog_format_materials?: { characteristic?: string } | null }).catalog_format_materials;
+        const packingRel = packingById.get(
+          String((f as { selected_packing_id?: string | null }).selected_packing_id || "")
+        );
         const formatColors = colorsByFormat.get(f.id) || [];
         const articleColors = formatColors
           .filter((c) => c.color_name)
@@ -530,6 +574,18 @@ export async function GET() {
           Number(f.height_cm) > 0
             ? formatLabelFromCm(Number(f.width_cm), Number(f.height_cm))
             : f.format_label;
+        const packing = packingRel
+          ? {
+              packingId: packingRel.id,
+              supplier: packingRel.supplier,
+              piecesPerBox: Number(packingRel.pieces_box),
+              m2PerBox: Number(packingRel.m2_box),
+              kgPerBox: Number(packingRel.kg_box),
+              boxesPerPallet: Number(packingRel.boxes_pallet),
+              m2PerPallet: Number(packingRel.m2_pallet),
+              kgPerPallet: Number(packingRel.kg_pallet),
+            }
+          : null;
         return {
           formatLabel,
           formatMaterialId: f.id,
@@ -537,6 +593,8 @@ export async function GET() {
           materialName: material?.name ?? "",
           widthCm: Number(f.width_cm),
           heightCm: Number(f.height_cm),
+          characteristic: catalogMeta?.characteristic || "",
+          packing,
           articleColors,
           ...serialiseFormatFilterBucket(formatMaterialFiltersMap.get(f.id)),
         };

@@ -33,11 +33,15 @@ const renameSeriesSchema = z.object({
   seriesId: z.string().uuid(),
   name: z.string().min(2),
 });
-const addFormatSchema = z.object({
+const assignCatalogFormatSchema = z.object({
   seriesId: z.string().uuid(),
-  widthCm: z.coerce.number().positive(),
-  heightCm: z.coerce.number().positive(),
-  materialLabel: z.string().min(2),
+  catalogFormatMaterialId: z.string().uuid(),
+  packingId: z.string().uuid(),
+});
+const updateSeriesPackingSchema = z.object({
+  seriesId: z.string().uuid(),
+  formatMaterialId: z.string().uuid(),
+  packingId: z.string().uuid(),
 });
 const addColorSchema = z.object({
   seriesId: z.string().uuid(),
@@ -370,43 +374,55 @@ export async function deleteSeriesAction(formData: FormData) {
   redirect("/admin/series");
 }
 
-export async function addFormatMaterialAction(formData: FormData) {
+/** Asigna un formato+material del catálogo global a la serie y elige su packing. */
+export async function assignCatalogFormatAction(formData: FormData) {
   await requireAdminUser();
   const supabase = await createClient();
-  const parsed = addFormatSchema.safeParse({
+  const parsed = assignCatalogFormatSchema.safeParse({
     seriesId: formData.get("seriesId"),
-    widthCm: formData.get("widthCm"),
-    heightCm: formData.get("heightCm"),
-    materialLabel: formData.get("materialLabel"),
+    catalogFormatMaterialId: formData.get("catalogFormatMaterialId"),
+    packingId: formData.get("packingId"),
   });
   if (!parsed.success) throw new Error("Datos de formato inválidos");
 
-  const materialLabel = parsed.data.materialLabel.trim();
-  const materialSlug = slugify(materialLabel);
-  const { data: existing } = await supabase.from("materials").select("id").eq("slug", materialSlug).maybeSingle();
-  let materialId = existing?.id;
-  if (!materialId) {
-    const created = await supabase
-      .from("materials")
-      .insert({ slug: materialSlug, name: materialLabel, default_technical_properties: {}, is_active: true })
-      .select("id")
-      .single();
-    if (created.error) throw new Error(created.error.message);
-    materialId = created.data.id;
+  const { data: catalog, error: catalogErr } = await supabase
+    .from("catalog_format_materials")
+    .select("id,material_id,width_cm,height_cm,format_label,characteristic")
+    .eq("id", parsed.data.catalogFormatMaterialId)
+    .maybeSingle();
+  if (catalogErr) throw new Error(catalogErr.message);
+  if (!catalog) throw new Error("Formato del catálogo no encontrado");
+
+  const { data: packing, error: packingErr } = await supabase
+    .from("format_packings")
+    .select("id,catalog_format_material_id")
+    .eq("id", parsed.data.packingId)
+    .eq("catalog_format_material_id", catalog.id)
+    .maybeSingle();
+  if (packingErr) throw new Error(packingErr.message);
+  if (!packing) throw new Error("El packing no pertenece a ese formato");
+
+  const { data: already } = await supabase
+    .from("format_materials")
+    .select("id")
+    .eq("series_id", parsed.data.seriesId)
+    .eq("catalog_format_material_id", catalog.id)
+    .maybeSingle();
+  if (already?.id) {
+    throw new Error("Esta serie ya tiene asignado ese formato + material.");
   }
 
-  const width = String(parsed.data.widthCm).replace(".", ",");
-  const height = String(parsed.data.heightCm).replace(".", ",");
-  const formatLabel = `${width}x${height}`;
   const inserted = await supabase
     .from("format_materials")
     .insert({
       series_id: parsed.data.seriesId,
-      material_id: materialId,
-      format_label: formatLabel,
-      width_cm: parsed.data.widthCm,
-      height_cm: parsed.data.heightCm,
+      material_id: catalog.material_id,
+      format_label: catalog.format_label,
+      width_cm: catalog.width_cm,
+      height_cm: catalog.height_cm,
       status: "published",
+      catalog_format_material_id: catalog.id,
+      selected_packing_id: packing.id,
     })
     .select("id")
     .single();
@@ -426,13 +442,44 @@ export async function addFormatMaterialAction(formData: FormData) {
   revalidatePath("/admin/formats");
 }
 
-const updateFormatSchema = z.object({
-  seriesId: z.string().uuid(),
-  formatMaterialId: z.string().uuid(),
-  widthCm: z.coerce.number().positive(),
-  heightCm: z.coerce.number().positive(),
-  materialLabel: z.string().min(2),
-});
+export async function updateSeriesFormatPackingAction(formData: FormData) {
+  await requireAdminUser();
+  const supabase = await createClient();
+  const parsed = updateSeriesPackingSchema.safeParse({
+    seriesId: formData.get("seriesId"),
+    formatMaterialId: formData.get("formatMaterialId"),
+    packingId: formData.get("packingId"),
+  });
+  if (!parsed.success) throw new Error("Datos de packing inválidos");
+
+  const { data: fm, error: fmErr } = await supabase
+    .from("format_materials")
+    .select("id,catalog_format_material_id")
+    .eq("id", parsed.data.formatMaterialId)
+    .eq("series_id", parsed.data.seriesId)
+    .maybeSingle();
+  if (fmErr) throw new Error(fmErr.message);
+  if (!fm?.catalog_format_material_id) throw new Error("Formato no encontrado en esta serie");
+
+  const { data: packing, error: packingErr } = await supabase
+    .from("format_packings")
+    .select("id")
+    .eq("id", parsed.data.packingId)
+    .eq("catalog_format_material_id", fm.catalog_format_material_id)
+    .maybeSingle();
+  if (packingErr) throw new Error(packingErr.message);
+  if (!packing) throw new Error("El packing no pertenece a ese formato");
+
+  const { error: updErr } = await supabase
+    .from("format_materials")
+    .update({ selected_packing_id: packing.id })
+    .eq("id", parsed.data.formatMaterialId)
+    .eq("series_id", parsed.data.seriesId);
+  if (updErr) throw new Error(updErr.message);
+
+  revalidatePath(`/admin/series/${parsed.data.seriesId}`);
+  revalidatePath("/admin/formats");
+}
 
 const deleteFormatSchema = z.object({
   seriesId: z.string().uuid(),
@@ -448,62 +495,6 @@ const renameArticleColorSchema = z.object({
   articleColorId: z.string().uuid(),
   name: z.string().min(2),
 });
-
-export async function updateFormatMaterialAction(formData: FormData) {
-  await requireAdminUser();
-  const supabase = await createClient();
-  const parsed = updateFormatSchema.safeParse({
-    seriesId: formData.get("seriesId"),
-    formatMaterialId: formData.get("formatMaterialId"),
-    widthCm: formData.get("widthCm"),
-    heightCm: formData.get("heightCm"),
-    materialLabel: formData.get("materialLabel"),
-  });
-  if (!parsed.success) throw new Error("Datos de formato inválidos");
-
-  const { seriesId, formatMaterialId } = parsed.data;
-  const { data: existing, error: existErr } = await supabase
-    .from("format_materials")
-    .select("id")
-    .eq("id", formatMaterialId)
-    .eq("series_id", seriesId)
-    .maybeSingle();
-  if (existErr) throw new Error(existErr.message);
-  if (!existing) throw new Error("Formato no encontrado o no pertenece a esta serie");
-
-  const materialLabel = parsed.data.materialLabel.trim();
-  const materialSlug = slugify(materialLabel);
-  const { data: matExisting } = await supabase.from("materials").select("id").eq("slug", materialSlug).maybeSingle();
-  let materialId = matExisting?.id;
-  if (!materialId) {
-    const created = await supabase
-      .from("materials")
-      .insert({ slug: materialSlug, name: materialLabel, default_technical_properties: {}, is_active: true })
-      .select("id")
-      .single();
-    if (created.error) throw new Error(created.error.message);
-    materialId = created.data.id;
-  }
-
-  const width = String(parsed.data.widthCm).replace(".", ",");
-  const height = String(parsed.data.heightCm).replace(".", ",");
-  const formatLabel = `${width}x${height}`;
-
-  const { error: updErr } = await supabase
-    .from("format_materials")
-    .update({
-      material_id: materialId,
-      format_label: formatLabel,
-      width_cm: parsed.data.widthCm,
-      height_cm: parsed.data.heightCm,
-    })
-    .eq("id", formatMaterialId)
-    .eq("series_id", seriesId);
-  if (updErr) throw new Error(updErr.message);
-
-  revalidatePath(`/admin/series/${seriesId}`);
-  revalidatePath("/admin/formats");
-}
 
 export async function deleteFormatMaterialAction(formData: FormData) {
   await requireAdminUser();

@@ -62,17 +62,26 @@ export async function migrateMaterialSlug(
   if (!newRow?.id) return { ok: false, message: "No se pudo resolver el material destino." };
 
   if (oldRow?.id && oldRow.id !== newRow.id) {
+    const mvCatalog = await supabase
+      .from("catalog_format_materials")
+      .update({ material_id: newRow.id })
+      .eq("material_id", oldRow.id);
+    if (mvCatalog.error) return { ok: false, message: mvCatalog.error.message };
+
     const mv = await supabase
       .from("format_materials")
       .update({ material_id: newRow.id })
       .eq("material_id", oldRow.id);
     if (mv.error) return { ok: false, message: mv.error.message };
 
-    const { count } = await supabase
-      .from("format_materials")
-      .select("id", { count: "exact", head: true })
-      .eq("material_id", oldRow.id);
-    if ((count ?? 0) === 0) {
+    const [{ count: seriesCount }, { count: catalogCount }] = await Promise.all([
+      supabase.from("format_materials").select("id", { count: "exact", head: true }).eq("material_id", oldRow.id),
+      supabase
+        .from("catalog_format_materials")
+        .select("id", { count: "exact", head: true })
+        .eq("material_id", oldRow.id),
+    ]);
+    if ((seriesCount ?? 0) === 0 && (catalogCount ?? 0) === 0) {
       const del = await supabase.from("materials").delete().eq("id", oldRow.id);
       if (del.error) return { ok: false, message: del.error.message };
     }
@@ -89,14 +98,15 @@ export async function assertMaterialFilterOptionDeletable(
   const { data: mat } = await supabase.from("materials").select("id").eq("slug", optionSlug).maybeSingle();
   if (!mat?.id) return { ok: true };
 
-  const { count } = await supabase
-    .from("format_materials")
-    .select("id", { count: "exact", head: true })
-    .eq("material_id", mat.id);
-  if ((count ?? 0) > 0) {
+  const [{ count: seriesCount }, { count: catalogCount }] = await Promise.all([
+    supabase.from("format_materials").select("id", { count: "exact", head: true }).eq("material_id", mat.id),
+    supabase.from("catalog_format_materials").select("id", { count: "exact", head: true }).eq("material_id", mat.id),
+  ]);
+  const total = (seriesCount ?? 0) + (catalogCount ?? 0);
+  if (total > 0) {
     return {
       ok: false,
-      message: `No se puede eliminar: ${count} formato(s) usan este material. Cambia el material en esos formatos antes.`,
+      message: `No se puede eliminar: ${total} formato(s) usan este material. Cambia el material en esos formatos antes.`,
     };
   }
 

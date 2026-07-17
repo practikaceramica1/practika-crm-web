@@ -13,9 +13,7 @@ import { SeriesDocumentsManager } from "@/components/admin/SeriesDocumentsManage
 import { SubmitButton } from "@/components/admin/SubmitButton";
 import {
   addColorsBulkAction,
-  addFormatMaterialAction,
   deleteArticleColorAction,
-  deleteFormatMaterialAction,
   deleteSeriesAssetAction,
   renameArticleColorAction,
   renameSeriesAction,
@@ -26,7 +24,6 @@ import {
   setFormatFiltersAction,
   setSeriesFiltersAction,
   toggleSeriesNewAction,
-  updateFormatMaterialAction,
   registerSeriesAmbientAssetAction,
   registerSeriesAmbientFromR2StagingAction,
   registerSeriesR2PdfAssetAction,
@@ -35,6 +32,12 @@ import {
   signSeriesAmbientUploadAction,
   signSeriesR2PdfUploadAction,
 } from "../actions";
+import {
+  SeriesFormatsAssignClient,
+  type AssignedFormatRow,
+  type CatalogOption,
+} from "@/components/admin/SeriesFormatsAssignClient";
+import { buildPackingOptionLabel } from "@/lib/formatDisplay";
 
 /** Subidas grandes (p. ej. TIFF) por Server Action en esta ruta. En Vercel depende del plan. */
 export const maxDuration = 300;
@@ -73,15 +76,16 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
   const supabase = await createClient();
 
   const needsFormats = view === "formats" || view === "filters" || view === "colors";
-  const needsMaterials = view === "formats";
+  const needsCatalog = view === "formats";
   const needsAssets = view === "documents";
   const needsFilters = view === "formats" || view === "filters" || view === "colors";
   const needsColors = view === "colors";
 
   const [
     { data: series, error: seriesError },
-    { data: materials, error: materialsError },
     { data: formats, error: formatsError },
+    { data: catalogRows, error: catalogError },
+    { data: packingRows, error: packingError },
     { data: assets, error: assetsError },
     { data: filterOptions, error: filterOptionsError },
     { data: seriesFilters, error: seriesFiltersError },
@@ -89,15 +93,29 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
     { data: colorFilters, error: colorFiltersError },
   ] = await Promise.all([
     supabase.from("series").select("*").eq("id", id).single(),
-    needsMaterials
-      ? supabase.from("materials").select("id,name").order("name")
-      : Promise.resolve({ data: [], error: null }),
     needsFormats
       ? supabase
           .from("format_materials")
-          .select("id,format_label,width_cm,height_cm,materials(name)")
+          .select(
+            "id,format_label,width_cm,height_cm,catalog_format_material_id,selected_packing_id,materials(name),catalog_format_materials(characteristic)"
+          )
           .eq("series_id", id)
           .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
+    needsCatalog
+      ? supabase
+          .from("catalog_format_materials")
+          .select("id,format_label,characteristic,materials(name)")
+          .eq("status", "published")
+          .order("format_label")
+      : Promise.resolve({ data: [], error: null }),
+    needsCatalog
+      ? supabase
+          .from("format_packings")
+          .select(
+            "id,catalog_format_material_id,supplier,pieces_box,m2_box,kg_box,boxes_pallet,m2_pallet,kg_pallet,sort_order"
+          )
+          .order("sort_order")
       : Promise.resolve({ data: [], error: null }),
     needsAssets
       ? supabase
@@ -161,8 +179,15 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
     );
   }
   if (seriesError && seriesError.code !== "PGRST116") throw new Error(seriesError.message);
-  if (materialsError) throw new Error(materialsError.message);
-  if (formatsError) throw new Error(formatsError.message);
+  const catalogSchemaMissing =
+    isSchemaNotReadyError(catalogError) ||
+    isSchemaNotReadyError(packingError) ||
+    String(formatsError?.message || "").includes("catalog_format_material") ||
+    String(formatsError?.message || "").includes("selected_packing") ||
+    String(catalogError?.message || "").includes("catalog_format_materials");
+  if (formatsError && !catalogSchemaMissing) throw new Error(formatsError.message);
+  if (catalogError && !catalogSchemaMissing) throw new Error(catalogError.message);
+  if (packingError && !catalogSchemaMissing) throw new Error(packingError.message);
   if (colorsError) throw new Error(colorsError.message);
   if (assetsQueryError) throw new Error(assetsQueryError.message);
   if (filterOptionsError) throw new Error(filterOptionsError.message);
@@ -190,9 +215,39 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
       }, {})
   );
 
-  const materialValues = [...(materials || []).map((m) => ({ value: m.name, label: m.name }))].sort((a, b) =>
-    a.label.localeCompare(b.label, "es")
-  );
+  type PackingRow = {
+    id: string;
+    catalog_format_material_id: string;
+    supplier: string | null;
+    pieces_box: number;
+    m2_box: number;
+    kg_box: number;
+    boxes_pallet: number;
+    m2_pallet: number;
+    kg_pallet: number;
+    sort_order: number;
+  };
+  const packingsByCatalog = new Map<string, PackingRow[]>();
+  for (const p of (packingRows || []) as PackingRow[]) {
+    const list = packingsByCatalog.get(p.catalog_format_material_id) || [];
+    list.push(p);
+    packingsByCatalog.set(p.catalog_format_material_id, list);
+  }
+
+  const catalogOptions: CatalogOption[] = (catalogRows || []).map((row) => {
+    const mat = pickRelation(row.materials);
+    const characteristic = row.characteristic ? ` · ${row.characteristic}` : "";
+    const packings = (packingsByCatalog.get(row.id) || []).map((p) => ({
+      id: p.id,
+      label: buildPackingOptionLabel(p),
+    }));
+    return {
+      id: row.id,
+      label: `${row.format_label}${characteristic} · ${mat?.name || "—"}`,
+      materialName: mat?.name || "",
+      packings,
+    };
+  });
 
   const colorRows = (colors || []) as Array<{
     id: string;
@@ -214,6 +269,30 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
     const [bw, bh] = parseFormatForSort(b.format_label);
     if (aw !== bw) return aw - bw;
     return ah - bh;
+  });
+
+  const assignedFormats: AssignedFormatRow[] = sortedFormats.map((f) => {
+    const matName = pickRelation(f.materials)?.name || "";
+    const catalogRel = pickRelation(
+      (f as { catalog_format_materials?: { characteristic?: string } | { characteristic?: string }[] | null })
+        .catalog_format_materials
+    );
+    const catalogId = (f as { catalog_format_material_id?: string | null }).catalog_format_material_id || null;
+    const packings = catalogId
+      ? (packingsByCatalog.get(catalogId) || []).map((p) => ({
+          id: p.id,
+          label: buildPackingOptionLabel(p),
+        }))
+      : [];
+    return {
+      id: f.id,
+      label: f.format_label,
+      materialName: matName,
+      characteristic: catalogRel?.characteristic || "",
+      catalogFormatMaterialId: catalogId,
+      selectedPackingId: (f as { selected_packing_id?: string | null }).selected_packing_id || null,
+      packings,
+    };
   });
   Object.keys(colorsByFormat).forEach((formatId) => {
     colorsByFormat[formatId].sort((a, b) => a.color_name.localeCompare(b.color_name, "es"));
@@ -308,109 +387,18 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
       ) : null}
 
       {view === "formats" ? (
-        <section className="space-y-4">
-          <article className="card p-5">
-            <h2 className="text-lg font-semibold">Crear formato + material</h2>
-            <form action={addFormatMaterialAction} className="mt-3 grid gap-2 md:grid-cols-5">
-              <FormPendingSection className="contents">
-                <input type="hidden" name="seriesId" value={series.id} />
-                <input className="input" name="widthCm" type="number" step="0.01" placeholder="Ancho" required />
-                <input className="input" name="heightCm" type="number" step="0.01" placeholder="Alto" required />
-                <select className="input" name="materialLabel" required>
-                  <option value="">Material</option>
-                  {materialValues.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                </select>
-                <div className="input bg-slate-50 text-xs text-slate-500">Producción</div>
-                <SubmitButton pendingText="Creando formato...">Crear</SubmitButton>
-              </FormPendingSection>
-            </form>
-          </article>
-          <article className="card p-5">
-            <h2 className="text-lg font-semibold">Formatos existentes</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Edita dimensiones o material, o elimina el formato. Al eliminar se borran también todos los colores de ese formato.
-            </p>
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              {sortedFormats.map((f) => {
-                const matName = pickRelation(f.materials)?.name || "";
-                const hasMatOption = materialValues.some((m) => m.value === matName);
-                return (
-                  <div key={f.id} className="rounded-lg border border-slate-200 p-4 space-y-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                      Actual · {f.format_label} · {matName || "—"}
-                    </p>
-                    <form action={updateFormatMaterialAction} className="space-y-2">
-                      <FormPendingSection>
-                        <input type="hidden" name="seriesId" value={series.id} />
-                        <input type="hidden" name="formatMaterialId" value={f.id} />
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <label className="block text-xs text-slate-600">
-                            Ancho (cm)
-                            <input
-                              className="input mt-1"
-                              name="widthCm"
-                              type="number"
-                              step="0.01"
-                              min="0.01"
-                              defaultValue={f.width_cm}
-                              required
-                            />
-                          </label>
-                          <label className="block text-xs text-slate-600">
-                            Alto (cm)
-                            <input
-                              className="input mt-1"
-                              name="heightCm"
-                              type="number"
-                              step="0.01"
-                              min="0.01"
-                              defaultValue={f.height_cm}
-                              required
-                            />
-                          </label>
-                        </div>
-                        <label className="block text-xs text-slate-600">
-                          Material
-                          <select className="input mt-1" name="materialLabel" required defaultValue={matName}>
-                            {!hasMatOption && matName ? (
-                              <option value={matName}>{matName}</option>
-                            ) : null}
-                            {materialValues.map((m) => (
-                              <option key={m.value} value={m.value}>
-                                {m.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <SubmitButton
-                          className="btn-secondary w-full sm:w-auto"
-                          pendingText="Guardando…"
-                          confirmMessage="¿Guardar cambios en este formato?"
-                        >
-                          Guardar cambios
-                        </SubmitButton>
-                      </FormPendingSection>
-                    </form>
-                    <form action={deleteFormatMaterialAction} className="border-t border-slate-100 pt-3">
-                      <FormPendingSection>
-                        <input type="hidden" name="seriesId" value={series.id} />
-                        <input type="hidden" name="formatMaterialId" value={f.id} />
-                        <SubmitButton
-                          className="w-full border border-red-200 bg-white text-sm font-semibold text-red-700 hover:bg-red-50 sm:w-auto"
-                          pendingText="Eliminando…"
-                          confirmMessage={`¿Eliminar el formato ${f.format_label} y todos sus colores asociados? Esta acción no se puede deshacer.`}
-                        >
-                          Eliminar formato
-                        </SubmitButton>
-                      </FormPendingSection>
-                    </form>
-                  </div>
-                );
-              })}
-              {sortedFormats.length === 0 ? <p className="text-sm text-slate-500">No hay formatos creados.</p> : null}
-            </div>
-          </article>
-        </section>
+        catalogSchemaMissing ? (
+          <SetupRequired
+            missing="public.catalog_format_materials / public.format_packings"
+            migration="supabase/migrations/20260717_catalog_formats_packings.sql"
+          />
+        ) : (
+          <SeriesFormatsAssignClient
+            seriesId={series.id}
+            catalogOptions={catalogOptions}
+            assigned={assignedFormats}
+          />
+        )
       ) : null}
 
       {view === "filters" ? (

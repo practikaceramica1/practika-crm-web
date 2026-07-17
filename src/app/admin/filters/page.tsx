@@ -28,7 +28,8 @@ export default async function FiltersPage({ searchParams }: PageProps) {
     supabase.from("filter_groups").select("id,key,name,sort_order").order("sort_order"),
     supabase
       .from("filter_options")
-      .select("id,label,filter_group_id,is_active,translations")
+      .select("id,label,filter_group_id,is_active,translations,sort_order")
+      .order("sort_order")
       .order("label"),
   ]);
   if (isSchemaNotReadyError(groupsError) || isSchemaNotReadyError(optionsError)) {
@@ -53,6 +54,7 @@ export default async function FiltersPage({ searchParams }: PageProps) {
           label: opt.label,
           is_active: Boolean(opt.is_active),
           translationsJson: translationsInputValue(opt.translations),
+          sort_order: Number(opt.sort_order ?? 0),
         })
       ),
   }));

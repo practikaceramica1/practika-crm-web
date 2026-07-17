@@ -101,12 +101,23 @@ export async function createFilterOptionAction(formData: FormData) {
 
   const slug = slugify(parsed.data.label);
   const label = parsed.data.label.trim();
+  let nextSort = 0;
+  if (isMaterialsFilterGroup(group?.key)) {
+    const { data: maxRow } = await supabase
+      .from("filter_options")
+      .select("sort_order")
+      .eq("filter_group_id", parsed.data.groupId)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    nextSort = (maxRow?.sort_order ?? 0) + 1;
+  }
   const { error } = await supabase.from("filter_options").upsert(
     {
       filter_group_id: parsed.data.groupId,
       label,
       slug,
-      sort_order: 0,
+      sort_order: nextSort,
       is_active: true,
     },
     { onConflict: "filter_group_id,slug" }
@@ -116,6 +127,7 @@ export async function createFilterOptionAction(formData: FormData) {
   if (isMaterialsFilterGroup(group?.key)) {
     const sync = await upsertMaterialForFilterOption(supabase, label, slug);
     if (!sync.ok) throw new Error(sync.message);
+    await supabase.from("materials").update({ sort_order: nextSort }).eq("slug", slug);
     revalidatePath("/admin/series");
     revalidatePath("/admin/formats");
   }
@@ -141,7 +153,7 @@ export async function updateFilterOptionAction(formData: FormData) {
     .maybeSingle();
   const groupKey = Array.isArray(existing?.filter_groups)
     ? existing.filter_groups[0]?.key
-    : (existing?.filter_groups as { key?: string } | null)?.key;
+    : (existing?.filter_groups as unknown as { key?: string } | null)?.key;
 
   const translations = parseTranslationsJson(parsed.data.translationsJson);
   const label = parsed.data.label.trim();
@@ -188,7 +200,7 @@ export async function deleteFilterOptionAction(formData: FormData) {
     .maybeSingle();
   const groupKey = Array.isArray(existing?.filter_groups)
     ? existing.filter_groups[0]?.key
-    : (existing?.filter_groups as { key?: string } | null)?.key;
+    : (existing?.filter_groups as unknown as { key?: string } | null)?.key;
 
   if (isMaterialsFilterGroup(groupKey) && existing?.slug) {
     const guard = await assertMaterialFilterOptionDeletable(supabase, existing.slug);
@@ -203,6 +215,57 @@ export async function deleteFilterOptionAction(formData: FormData) {
     revalidatePath("/admin/formats");
   }
   revalidatePath("/admin/filters");
+}
+
+/** Reordena opciones del grupo Material (orden packing-list). Catálogo web sigue alfabético. */
+export async function reorderMaterialOptionsAction(formData: FormData) {
+  await requireAdminUser();
+  const parsed = reorderGroupsSchema.safeParse({ orderedIdsJson: formData.get("orderedIdsJson") });
+  if (!parsed.success) throw new Error("Orden no válido");
+
+  let orderedIds: string[];
+  try {
+    orderedIds = JSON.parse(parsed.data.orderedIdsJson) as string[];
+  } catch {
+    throw new Error("Orden no válido");
+  }
+  if (!Array.isArray(orderedIds) || !orderedIds.every((id) => z.string().uuid().safeParse(id).success)) {
+    throw new Error("Orden no válido");
+  }
+
+  const supabase = await createClient();
+  const { data: groups } = await supabase
+    .from("filter_groups")
+    .select("id,key")
+    .in("key", ["materials", "material"]);
+  const materialsGroupIds = new Set((groups || []).map((g) => g.id));
+  if (materialsGroupIds.size === 0) throw new Error("Grupo Material no encontrado");
+
+  const { data: options, error: optErr } = await supabase
+    .from("filter_options")
+    .select("id,slug,filter_group_id")
+    .in("filter_group_id", [...materialsGroupIds]);
+  if (optErr) throw new Error(optErr.message);
+
+  const byId = new Map((options || []).map((o) => [o.id, o]));
+  if (orderedIds.length !== byId.size || !orderedIds.every((id) => byId.has(id))) {
+    throw new Error("Lista de materiales incompleta.");
+  }
+
+  for (let i = 0; i < orderedIds.length; i++) {
+    const id = orderedIds[i];
+    const opt = byId.get(id)!;
+    const sortOrder = i + 1;
+    const uOpt = await supabase.from("filter_options").update({ sort_order: sortOrder }).eq("id", id);
+    if (uOpt.error) throw new Error(uOpt.error.message);
+    if (opt.slug) {
+      const uMat = await supabase.from("materials").update({ sort_order: sortOrder }).eq("slug", opt.slug);
+      if (uMat.error) throw new Error(uMat.error.message);
+    }
+  }
+
+  revalidatePath("/admin/filters");
+  revalidatePath("/admin/formats");
 }
 
 /** Reordena grupos visibles en admin (el grupo `formats` conserva su hueco en BD). */
