@@ -4,6 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireAdminUser } from "@/lib/auth";
+import {
+  assertMaterialFilterOptionDeletable,
+  isMaterialsFilterGroup,
+  migrateMaterialSlug,
+  upsertMaterialForFilterOption,
+} from "@/lib/materialsFilterSync";
 import { createClient } from "@/lib/supabase/server";
 import { slugify } from "@/lib/text";
 
@@ -87,11 +93,18 @@ export async function createFilterOptionAction(formData: FormData) {
   });
   if (!parsed.success) throw new Error("Datos inválidos");
 
+  const { data: group } = await supabase
+    .from("filter_groups")
+    .select("key")
+    .eq("id", parsed.data.groupId)
+    .maybeSingle();
+
   const slug = slugify(parsed.data.label);
+  const label = parsed.data.label.trim();
   const { error } = await supabase.from("filter_options").upsert(
     {
       filter_group_id: parsed.data.groupId,
-      label: parsed.data.label.trim(),
+      label,
       slug,
       sort_order: 0,
       is_active: true,
@@ -99,6 +112,14 @@ export async function createFilterOptionAction(formData: FormData) {
     { onConflict: "filter_group_id,slug" }
   );
   if (error) throw new Error(error.message);
+
+  if (isMaterialsFilterGroup(group?.key)) {
+    const sync = await upsertMaterialForFilterOption(supabase, label, slug);
+    if (!sync.ok) throw new Error(sync.message);
+    revalidatePath("/admin/series");
+    revalidatePath("/admin/formats");
+  }
+
   revalidatePath("/admin/filters");
   redirect(`/admin/filters?groupId=${encodeURIComponent(parsed.data.groupId)}`);
 }
@@ -113,14 +134,25 @@ export async function updateFilterOptionAction(formData: FormData) {
   });
   if (!parsed.success) throw new Error("Datos inválidos");
 
+  const { data: existing } = await supabase
+    .from("filter_options")
+    .select("slug, filter_groups(key)")
+    .eq("id", parsed.data.optionId)
+    .maybeSingle();
+  const groupKey = Array.isArray(existing?.filter_groups)
+    ? existing.filter_groups[0]?.key
+    : (existing?.filter_groups as { key?: string } | null)?.key;
+
   const translations = parseTranslationsJson(parsed.data.translationsJson);
+  const label = parsed.data.label.trim();
+  const newSlug = slugify(label);
   const payload: {
     label: string;
     slug: string;
     translations?: Record<string, string>;
   } = {
-    label: parsed.data.label.trim(),
-    slug: slugify(parsed.data.label),
+    label,
+    slug: newSlug,
   };
   if (translations !== null) payload.translations = translations;
 
@@ -129,6 +161,17 @@ export async function updateFilterOptionAction(formData: FormData) {
     .update(payload)
     .eq("id", parsed.data.optionId);
   if (error) throw new Error(error.message);
+
+  if (isMaterialsFilterGroup(groupKey)) {
+    const oldSlug = String(existing?.slug || "").trim();
+    const sync = oldSlug
+      ? await migrateMaterialSlug(supabase, oldSlug, newSlug, label)
+      : await upsertMaterialForFilterOption(supabase, label, newSlug);
+    if (!sync.ok) throw new Error(sync.message);
+    revalidatePath("/admin/series");
+    revalidatePath("/admin/formats");
+  }
+
   revalidatePath("/admin/filters");
 }
 
@@ -138,8 +181,27 @@ export async function deleteFilterOptionAction(formData: FormData) {
   const parsed = deleteOptionSchema.safeParse({ optionId: formData.get("optionId") });
   if (!parsed.success) throw new Error("Datos inválidos");
 
+  const { data: existing } = await supabase
+    .from("filter_options")
+    .select("slug, filter_groups(key)")
+    .eq("id", parsed.data.optionId)
+    .maybeSingle();
+  const groupKey = Array.isArray(existing?.filter_groups)
+    ? existing.filter_groups[0]?.key
+    : (existing?.filter_groups as { key?: string } | null)?.key;
+
+  if (isMaterialsFilterGroup(groupKey) && existing?.slug) {
+    const guard = await assertMaterialFilterOptionDeletable(supabase, existing.slug);
+    if (!guard.ok) throw new Error(guard.message);
+  }
+
   const { error } = await supabase.from("filter_options").delete().eq("id", parsed.data.optionId);
   if (error) throw new Error(error.message);
+
+  if (isMaterialsFilterGroup(groupKey)) {
+    revalidatePath("/admin/series");
+    revalidatePath("/admin/formats");
+  }
   revalidatePath("/admin/filters");
 }
 
