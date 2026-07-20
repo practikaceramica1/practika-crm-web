@@ -20,7 +20,7 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
   const pathname = usePathname();
 
   return (
-    <aside className="flex min-h-screen flex-col border-r border-slate-200 bg-slate-50/70 p-4">
+    <aside className="flex flex-col self-start overflow-visible border-r border-slate-200 bg-slate-50/70 p-4 lg:sticky lg:top-0">
       <div className="card p-4">
         <p className="text-xs uppercase tracking-widest text-[#1a1f3d]">Practika</p>
         <h1 className="text-xl font-bold text-slate-900">CRM v3</h1>
@@ -50,7 +50,7 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
       </nav>
       <RefreshWebCacheButton />
 
-      <div className="mt-auto space-y-2 border-t border-slate-200 pt-4">
+      <div className="mt-4 space-y-2 border-t border-slate-200 pt-4">
         <p className="truncate px-1 text-xs text-slate-500" title={userEmail}>
           {userEmail || "Usuario"}
         </p>
