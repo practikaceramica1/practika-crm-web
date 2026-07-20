@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Download, FolderKanban, Filter, Newspaper, Ruler } from "lucide-react";
+import { FormPendingSection } from "@/components/admin/FormPendingSection";
 import { RefreshWebCacheButton } from "@/components/admin/RefreshWebCacheButton";
+import { SubmitButton } from "@/components/admin/SubmitButton";
+import { signOutAction } from "@/app/admin/actions";
 
 const links = [
   { href: "/admin/series", label: "Series", hint: "Constructor", icon: FolderKanban },
@@ -13,11 +16,11 @@ const links = [
   { href: "/admin/filters", label: "Filtros", hint: "Catálogo", icon: Filter },
 ];
 
-export function Sidebar() {
+export function Sidebar({ userEmail }: { userEmail: string }) {
   const pathname = usePathname();
 
   return (
-    <aside className="border-r border-slate-200 bg-slate-50/70 p-4">
+    <aside className="flex min-h-screen flex-col border-r border-slate-200 bg-slate-50/70 p-4">
       <div className="card p-4">
         <p className="text-xs uppercase tracking-widest text-[#1a1f3d]">Practika</p>
         <h1 className="text-xl font-bold text-slate-900">CRM v3</h1>
@@ -46,6 +49,22 @@ export function Sidebar() {
         })}
       </nav>
       <RefreshWebCacheButton />
+
+      <div className="mt-auto space-y-2 border-t border-slate-200 pt-4">
+        <p className="truncate px-1 text-xs text-slate-500" title={userEmail}>
+          {userEmail || "Usuario"}
+        </p>
+        <form action={signOutAction}>
+          <FormPendingSection>
+            <SubmitButton
+              className="btn-secondary w-full justify-center text-xs"
+              pendingText="Saliendo..."
+            >
+              Salir de sesión
+            </SubmitButton>
+          </FormPendingSection>
+        </form>
+      </div>
     </aside>
   );
 }

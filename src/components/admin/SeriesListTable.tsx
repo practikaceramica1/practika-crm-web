@@ -10,19 +10,28 @@ export type SeriesListRow = {
   slug: string;
   is_new: boolean;
   updated_at: string | null;
+  formats: string[];
 };
 
 type FilterMode = "all" | "new" | "not_new";
 
 const columns: AdminTableColumn<SeriesListRow>[] = [
-  { id: "name", header: "Serie", sortable: true, field: "name", initialWidth: 260, minWidth: 120 },
-  { id: "slug", header: "Slug", sortable: true, field: "slug", initialWidth: 160, minWidth: 80 },
+  { id: "name", header: "Serie", sortable: true, field: "name", initialWidth: 220, minWidth: 120 },
+  {
+    id: "formats",
+    header: "Formato(s)",
+    sortable: true,
+    getSortValue: (r) => r.formats[0] || "",
+    initialWidth: 200,
+    minWidth: 120,
+  },
+  { id: "slug", header: "Slug", sortable: true, field: "slug", initialWidth: 140, minWidth: 80 },
   {
     id: "updated_at",
     header: "Actualizada",
     sortable: true,
     getSortValue: (r) => (r.updated_at ? new Date(r.updated_at) : null),
-    initialWidth: 210,
+    initialWidth: 190,
     minWidth: 140,
   },
   { id: "actions", header: "Acciones", sortable: false, align: "right", initialWidth: 220, minWidth: 180 },
@@ -91,6 +100,23 @@ export function SeriesListTable({ rows }: { rows: SeriesListRow[] }) {
                     Nuevo
                   </span>
                 )}
+              </span>
+            );
+          }
+          if (colId === "formats") {
+            if (!row.formats.length) {
+              return <span className="text-slate-400">—</span>;
+            }
+            return (
+              <span className="inline-flex flex-wrap gap-1">
+                {row.formats.map((f) => (
+                  <span
+                    key={f}
+                    className="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium tabular-nums text-slate-700"
+                  >
+                    {f}
+                  </span>
+                ))}
               </span>
             );
           }

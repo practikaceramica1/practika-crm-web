@@ -21,11 +21,18 @@ export function RefreshWebCacheButton() {
     if (!ok) return;
 
     startTransition(async () => {
-      const result: RefreshWebCacheResult = await refreshWebCacheAction();
-      setSnackbar({
-        type: result.ok ? "success" : "error",
-        message: result.message,
-      });
+      try {
+        const result: RefreshWebCacheResult = await refreshWebCacheAction();
+        setSnackbar({
+          type: result.ok ? "success" : "error",
+          message: result.message || (result.ok ? "Listo." : "No se pudo actualizar la web."),
+        });
+      } catch (e) {
+        setSnackbar({
+          type: "error",
+          message: e instanceof Error ? e.message : "Error al actualizar la web.",
+        });
+      }
     });
   }
 

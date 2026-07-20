@@ -60,7 +60,12 @@ export async function refreshWebCacheAction(formData?: FormData): Promise<Refres
         revalidated?: string[];
       };
       if (!res.ok || !data.ok) {
-        revalidateError = data.error || `HTTP ${res.status}`;
+        if (res.status === 401 || data.error === "No autorizado") {
+          revalidateError =
+            "No autorizado: REVALIDATE_SECRET del CRM no coincide con el de la web (Vercel → practika-web), o falta en la web.";
+        } else {
+          revalidateError = data.error || `HTTP ${res.status}`;
+        }
       } else {
         revalidateOk = true;
         revalidatedCount = data.revalidated?.length || 0;
