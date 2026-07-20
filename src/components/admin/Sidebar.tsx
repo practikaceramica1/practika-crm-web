@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Download, FolderKanban, Filter, Newspaper, Ruler } from "lucide-react";
+import { RefreshWebCacheButton } from "@/components/admin/RefreshWebCacheButton";
 
 const links = [
   { href: "/admin/series", label: "Series", hint: "Constructor", icon: FolderKanban },
@@ -44,6 +45,7 @@ export function Sidebar() {
           );
         })}
       </nav>
+      <RefreshWebCacheButton />
     </aside>
   );
 }
