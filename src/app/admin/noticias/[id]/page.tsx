@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { SetupRequired } from "@/components/admin/SetupRequired";
 import { FormPendingSection } from "@/components/admin/FormPendingSection";
+import { NotifyForm } from "@/components/admin/NotifyForm";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 import { isSchemaNotReadyError } from "@/lib/supabase/error-handling";
 import { getNewsSectionWithAssets, updateNewsSectionMetaAction } from "../actions";
@@ -41,7 +42,11 @@ export default async function AdminNoticiaSectionPage({ params }: Props) {
       <h1 className="text-2xl font-bold text-slate-900">Editar sección</h1>
       <p className="text-sm text-slate-600">Título, descripción y estado de publicación.</p>
 
-      <form action={updateNewsSectionMetaAction} className="card mt-4 p-5">
+      <NotifyForm
+        action={updateNewsSectionMetaAction}
+        successMessage="Sección guardada."
+        className="card mt-4 p-5"
+      >
         <input type="hidden" name="sectionId" value={section.id} />
         <label className="block text-sm">
           <span className="font-medium text-slate-700">Título</span>
@@ -69,7 +74,7 @@ export default async function AdminNoticiaSectionPage({ params }: Props) {
             Guardar datos de la sección
           </SubmitButton>
         </FormPendingSection>
-      </form>
+      </NotifyForm>
 
       <div className="mt-8">
         <h2 className="text-lg font-semibold text-slate-900">Archivos de la sección</h2>

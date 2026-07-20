@@ -1,5 +1,7 @@
 "use client";
 
+import { useAdminSnackbar } from "@/components/admin/AdminSnackbar";
+
 import type { FormEvent } from "react";
 import { FileUp, ImageIcon, Loader2, X } from "lucide-react";
 import { useFormStatus } from "react-dom";
@@ -12,7 +14,6 @@ import type {
 } from "@/app/admin/series/actions";
 import { preprocessAmbientUploadFile } from "@/lib/uploads/ambientClientToJpeg";
 import { FormPendingSection } from "./FormPendingSection";
-import { Snackbar } from "./Snackbar";
 
 const SERIES_DOCUMENTS_UPLOAD_API = "/api/admin/series/upload-documents";
 
@@ -169,7 +170,7 @@ export function DocumentDropzoneForm({
   registerPdfAsset?: (formData: FormData) => Promise<UploadSeriesDocumentsResult>;
 }) {
   const [files, setFiles] = useState<File[]>([]);
-  const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const { notify } = useAdminSnackbar();
   const [languageCode, setLanguageCode] = useState(type === "catalog_pdf" ? "es-en" : "na");
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -195,7 +196,7 @@ export function DocumentDropzoneForm({
     const allowed = filterFilesByAccept(picked, accept);
     if (!allowed.length) {
       if (picked.length) {
-        setSnackbar({
+        notify({
           type: "error",
           message: "Ningún archivo coincide con el tipo permitido en esta sección.",
         });
@@ -407,7 +408,6 @@ export function DocumentDropzoneForm({
     if (files.length === 0) return;
 
     setUploading(true);
-    setSnackbar(null);
     try {
       const collected: Array<{
         id: string;
@@ -438,7 +438,7 @@ export function DocumentDropzoneForm({
               !useAmbientR2Staging &&
               file.size > VERCEL_SERVERLESS_BODY_LIMIT_BYTES
             ) {
-              setSnackbar({
+              notify({
                 type: "error",
                 message:
                   "Este archivo supera el límite de ~4.5 MB para subidas por API en Vercel (413). Configura R2 (mismas variables que los PDF) para poder subir TIFF/imágenes grandes: el binario va directo al bucket y el servidor solo procesa y registra.",
@@ -453,7 +453,7 @@ export function DocumentDropzoneForm({
             result = await postSeriesDocumentsUpload(fd);
           }
           if (!result.ok) {
-            setSnackbar({ type: "error", message: result.message });
+            notify({ type: "error", message: result.message });
             return;
           }
           collected.push(...result.assets);
@@ -472,7 +472,7 @@ export function DocumentDropzoneForm({
             result = await postSeriesDocumentsUpload(fd);
           }
           if (!result.ok) {
-            setSnackbar({ type: "error", message: result.message });
+            notify({ type: "error", message: result.message });
             return;
           }
           collected.push(...result.assets);
@@ -497,7 +497,7 @@ export function DocumentDropzoneForm({
         }
         const result = await postSeriesDocumentsUpload(fd);
         if (!result.ok) {
-          setSnackbar({ type: "error", message: result.message });
+          notify({ type: "error", message: result.message });
           return;
         }
         collected.push(...result.assets);
@@ -508,7 +508,7 @@ export function DocumentDropzoneForm({
       if (onUploaded && collected.length) onUploaded(collected);
     } catch (err) {
       const message = err instanceof Error ? err.message : "No se pudo completar la subida";
-      setSnackbar({ type: "error", message });
+      notify({ type: "error", message });
     } finally {
       setUploading(false);
     }
@@ -602,7 +602,6 @@ export function DocumentDropzoneForm({
         ) : null}
         <DocumentUploadSubmitButton filesLength={files.length} beforeSubmit={syncQueuedFilesToInput} busyOverride={uploading} />
       </FormPendingSection>
-      <Snackbar value={snackbar} onClose={() => setSnackbar(null)} />
     </form>
   );
 }

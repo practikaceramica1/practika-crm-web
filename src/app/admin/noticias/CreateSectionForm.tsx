@@ -1,10 +1,11 @@
 import { createNewsSectionAction } from "./actions";
 import { FormPendingSection } from "@/components/admin/FormPendingSection";
+import { NotifyForm } from "@/components/admin/NotifyForm";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 
 export function CreateSectionForm() {
   return (
-    <form action={createNewsSectionAction} className="card mb-6 p-5">
+    <NotifyForm action={createNewsSectionAction} notifySuccess={false} className="card mb-6 p-5">
       <h2 className="text-lg font-semibold text-slate-900">Nueva sección</h2>
       <p className="mt-1 text-sm text-slate-600">
         Ejemplos: <strong>Novedades</strong>, <strong>Ofertas</strong>, <strong>Proyectos</strong>. El título es lo
@@ -28,6 +29,6 @@ export function CreateSectionForm() {
           Crear sección y editar contenido
         </SubmitButton>
       </FormPendingSection>
-    </form>
+    </NotifyForm>
   );
 }

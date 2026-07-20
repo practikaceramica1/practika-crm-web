@@ -1,14 +1,15 @@
 "use client";
 
+import { useAdminSnackbar } from "@/components/admin/AdminSnackbar";
+
 import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
 import type { NewsSectionRow } from "./actions";
 import { deleteNewsSectionAction, reorderNewsSectionsAction } from "./actions";
-import { Snackbar } from "@/components/admin/Snackbar";
 
 export default function NewsSectionsReorderClient({ initialSections }: { initialSections: NewsSectionRow[] }) {
   const [sections, setSections] = useState(initialSections);
-  const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const { notify } = useAdminSnackbar();
   const dragId = useRef<string | null>(null);
 
   const persistOrder = useCallback(async (next: NewsSectionRow[]) => {
@@ -33,7 +34,7 @@ export default function NewsSectionsReorderClient({ initialSections }: { initial
         await persistOrder(reindexed);
       } catch (e) {
         setSections(snapshot);
-        setSnackbar({ type: "error", message: e instanceof Error ? e.message : "No se pudo guardar el orden." });
+        notify({ type: "error", message: e instanceof Error ? e.message : "No se pudo guardar el orden." });
       }
     },
     [sections, persistOrder]
@@ -46,9 +47,9 @@ export default function NewsSectionsReorderClient({ initialSections }: { initial
       fd.set("sectionId", id);
       await deleteNewsSectionAction(fd);
       setSections((p) => p.filter((s) => s.id !== id));
-      setSnackbar({ type: "success", message: "Sección eliminada." });
+      notify({ type: "success", message: "Sección eliminada." });
     } catch (e) {
-      setSnackbar({ type: "error", message: e instanceof Error ? e.message : "No se pudo eliminar." });
+      notify({ type: "error", message: e instanceof Error ? e.message : "No se pudo eliminar." });
     }
   };
 
@@ -94,7 +95,6 @@ export default function NewsSectionsReorderClient({ initialSections }: { initial
           </li>
         ))}
       </ul>
-      <Snackbar value={snackbar} onClose={() => setSnackbar(null)} />
     </div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { FormPendingSection } from "./FormPendingSection";
+import { NotifyForm } from "./NotifyForm";
 import { SubmitButton } from "./SubmitButton";
 
 type Group = { key: string; name: string; options: { id: string; label: string }[] };
@@ -41,7 +42,7 @@ export function MultiFilterPicker({
   }, [groups, query]);
 
   return (
-    <form action={saveAction} className="space-y-2">
+    <NotifyForm action={saveAction} successMessage="Filtros guardados." className="space-y-2">
       <FormPendingSection>
         <input type="hidden" name={hiddenIdName} value={hiddenIdValue} />
         <input type="hidden" name="optionIdsJson" value={selectedJson} />
@@ -82,6 +83,6 @@ export function MultiFilterPicker({
           {saveButton}
         </SubmitButton>
       </FormPendingSection>
-    </form>
+    </NotifyForm>
   );
 }

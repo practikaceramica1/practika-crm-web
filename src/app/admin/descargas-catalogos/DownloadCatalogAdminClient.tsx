@@ -1,8 +1,9 @@
 "use client";
 
+import { useAdminSnackbar } from "@/components/admin/AdminSnackbar";
+
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Snackbar } from "@/components/admin/Snackbar";
 import type { CatalogLang, CatalogTranslations, DownloadCatalogItemRow } from "./downloadCatalogTypes";
 import { CATALOG_EXTRA_LANGS } from "./downloadCatalogTypes";
 import {
@@ -84,7 +85,6 @@ function CatalogItemEditor({
   onDeleted,
   onMetaSaved,
   onPdfReplaced,
-  setSnackbar,
   onDragStartRow,
   onDragOverRow,
   onDropRow,
@@ -93,11 +93,11 @@ function CatalogItemEditor({
   onDeleted: (id: string) => void;
   onMetaSaved: (next: DownloadCatalogItemRow) => void;
   onPdfReplaced: (id: string, newFileKey: string) => void;
-  setSnackbar: (v: { type: "success" | "error"; message: string } | null) => void;
   onDragStartRow: () => void;
   onDragOverRow: (e: React.DragEvent) => void;
   onDropRow: () => void;
 }) {
+  const { notify } = useAdminSnackbar();
   const [activeLang, setActiveLang] = useState<"es" | CatalogLang>("es");
   const [draft, setDraft] = useState<TranslationDraft>(() => buildDraft(row));
   const [fileSizeHint, setFileSizeHint] = useState(row.file_size_hint ?? "");
@@ -135,9 +135,9 @@ function CatalogItemEditor({
         status,
         translations: JSON.parse(draftToTranslationsJson(draft)) as CatalogTranslations,
       });
-      setSnackbar({ type: "success", message: "Datos guardados." });
+      notify({ type: "success", message: "Datos guardados." });
     } catch (e) {
-      setSnackbar({ type: "error", message: e instanceof Error ? e.message : "Error al guardar." });
+      notify({ type: "error", message: e instanceof Error ? e.message : "Error al guardar." });
     } finally {
       setSaving(false);
     }
@@ -146,7 +146,7 @@ function CatalogItemEditor({
   const onPickReplace = async (list: FileList | null) => {
     const file = list?.[0];
     if (!file || !file.name.toLowerCase().endsWith(".pdf")) {
-      setSnackbar({ type: "error", message: "Elige un PDF." });
+      notify({ type: "error", message: "Elige un PDF." });
       return;
     }
     setReplacing(true);
@@ -170,9 +170,9 @@ function CatalogItemEditor({
       appFd.set("oldFileKey", row.file_key);
       await applyDownloadCatalogPdfReplaceAction(appFd);
       onPdfReplaced(row.id, signed.fileKey);
-      setSnackbar({ type: "success", message: "PDF sustituido." });
+      notify({ type: "success", message: "PDF sustituido." });
     } catch (e) {
-      setSnackbar({ type: "error", message: e instanceof Error ? e.message : "Error al reemplazar." });
+      notify({ type: "error", message: e instanceof Error ? e.message : "Error al reemplazar." });
     } finally {
       setReplacing(false);
       if (replaceRef.current) replaceRef.current.value = "";
@@ -186,9 +186,9 @@ function CatalogItemEditor({
       fd.set("itemId", row.id);
       await deleteDownloadCatalogItemAction(fd);
       onDeleted(row.id);
-      setSnackbar({ type: "success", message: "Eliminado." });
+      notify({ type: "success", message: "Eliminado." });
     } catch (e) {
-      setSnackbar({ type: "error", message: e instanceof Error ? e.message : "No se pudo eliminar." });
+      notify({ type: "error", message: e instanceof Error ? e.message : "No se pudo eliminar." });
     }
   };
 
@@ -346,7 +346,7 @@ function CatalogItemEditor({
 export default function DownloadCatalogAdminClient({ initialItems }: { initialItems: DownloadCatalogItemRow[] }) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
-  const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const { notify } = useAdminSnackbar();
   const dragId = useRef<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const addRef = useRef<HTMLInputElement>(null);
@@ -381,7 +381,7 @@ export default function DownloadCatalogAdminClient({ initialItems }: { initialIt
         await persistOrder(reindexed);
       } catch (e) {
         setItems(snapshot);
-        setSnackbar({ type: "error", message: e instanceof Error ? e.message : "No se pudo guardar el orden." });
+        notify({ type: "error", message: e instanceof Error ? e.message : "No se pudo guardar el orden." });
       }
     },
     [items, persistOrder]
@@ -390,11 +390,10 @@ export default function DownloadCatalogAdminClient({ initialItems }: { initialIt
   const addPdf = async (list: FileList | null) => {
     const file = list?.[0];
     if (!file || !file.name.toLowerCase().endsWith(".pdf")) {
-      setSnackbar({ type: "error", message: "Selecciona un PDF." });
+      notify({ type: "error", message: "Selecciona un PDF." });
       return;
     }
     setUploading(true);
-    setSnackbar(null);
     try {
       const signFd = new FormData();
       signFd.set("originalFileName", file.name);
@@ -416,10 +415,10 @@ export default function DownloadCatalogAdminClient({ initialItems }: { initialIt
       regFd.set("title", titleDefault.slice(0, 240));
       const registered = await registerNewDownloadCatalogItemAction(regFd);
       if (!registered.ok) throw new Error(registered.message);
-      setSnackbar({ type: "success", message: "PDF añadido (borrador). Edita el título, traducciones y publícalo." });
+      notify({ type: "success", message: "PDF añadido (borrador). Edita el título, traducciones y publícalo." });
       router.refresh();
     } catch (e) {
-      setSnackbar({ type: "error", message: e instanceof Error ? e.message : "Error al añadir." });
+      notify({ type: "error", message: e instanceof Error ? e.message : "Error al añadir." });
     } finally {
       setUploading(false);
       if (addRef.current) addRef.current.value = "";
@@ -469,7 +468,6 @@ export default function DownloadCatalogAdminClient({ initialItems }: { initialIt
               onPdfReplaced={(id, newFileKey) =>
                 setItems((p) => p.map((x) => (x.id === id ? { ...x, file_key: newFileKey } : x)))
               }
-              setSnackbar={setSnackbar}
               onDragStartRow={() => {
                 dragId.current = row.id;
               }}
@@ -487,7 +485,6 @@ export default function DownloadCatalogAdminClient({ initialItems }: { initialIt
           ))}
         </ul>
       )}
-      <Snackbar value={snackbar} onClose={() => setSnackbar(null)} />
     </div>
   );
 }

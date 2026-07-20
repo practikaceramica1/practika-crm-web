@@ -1,9 +1,10 @@
 "use client";
 
+import { useAdminSnackbar } from "@/components/admin/AdminSnackbar";
+
 import { useEffect, useRef, useState } from "react";
 import { needsRasterImagePreviewConversion, preprocessColorUploadFile } from "@/lib/uploads/ambientClientToJpeg";
 import { FormPendingSection } from "./FormPendingSection";
-import { Snackbar } from "./Snackbar";
 import { SubmitButton } from "./SubmitButton";
 
 function nameFromFile(fileName: string) {
@@ -31,7 +32,7 @@ export function ColorBulkCreateCard({
   signUploadAction: (formData: FormData) => Promise<{ ok: true; putUrl: string; fileKey: string; contentType: string } | { ok: false; message: string }>;
 }) {
   const [items, setItems] = useState<Array<{ id: string; name: string; sourceFile: string; previewUrl: string; file: File }>>([]);
-  const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const { notify } = useAdminSnackbar();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function addImageFiles(list: FileList | File[] | null) {
@@ -43,7 +44,7 @@ export function ColorBulkCreateCard({
     );
     if (!files.length) {
       if (raw.length) {
-        setSnackbar({ type: "error", message: "Solo se admiten archivos de imagen." });
+        notify({ type: "error", message: "Solo se admiten archivos de imagen." });
       }
       return;
     }
@@ -115,10 +116,10 @@ export function ColorBulkCreateCard({
       items.forEach((item) => URL.revokeObjectURL(item.previewUrl));
       setItems([]);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      setSnackbar({ type: "success", message: `${title}: guardado correcto` });
+      notify({ type: "success", message: `${title}: guardado correcto` });
     } catch (error) {
       const message = error instanceof Error ? error.message : "No se pudieron guardar los colores";
-      setSnackbar({ type: "error", message });
+      notify({ type: "error", message });
     }
   };
 
@@ -203,7 +204,6 @@ export function ColorBulkCreateCard({
           Crear {items.length || 0} colores
         </SubmitButton>
       </FormPendingSection>
-      <Snackbar value={snackbar} onClose={() => setSnackbar(null)} />
     </form>
   );
 }

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { FormPendingSection } from "@/components/admin/FormPendingSection";
+import { NotifyForm } from "@/components/admin/NotifyForm";
 import { SetupRequired } from "@/components/admin/SetupRequired";
 import { isSchemaNotReadyError } from "@/lib/supabase/error-handling";
 import { SubmitButton } from "@/components/admin/SubmitButton";
@@ -75,7 +76,11 @@ export default async function FiltersPage({ searchParams }: PageProps) {
           <p className="mt-1 text-xs text-slate-500">
             Se añade al final; luego arrastra en la lista para colocarlo donde quieras.
           </p>
-          <form action={createFilterGroupAction} className="mt-3 space-y-3">
+          <NotifyForm
+            action={createFilterGroupAction}
+            successMessage="Grupo de filtros creado."
+            className="mt-3 space-y-3"
+          >
             <FormPendingSection className="space-y-3">
               <label className="block text-sm">
                 <span className="font-medium text-slate-700">Clave interna</span>
@@ -91,14 +96,18 @@ export default async function FiltersPage({ searchParams }: PageProps) {
               </label>
               <SubmitButton pendingText="Guardando grupo...">Guardar grupo</SubmitButton>
             </FormPendingSection>
-          </form>
+          </NotifyForm>
         </article>
         <article className="card p-5">
           <h2 className="text-lg font-semibold">Nueva opción</h2>
           <p className="mt-1 text-xs text-slate-500">
             Añade un valor al grupo elegido. El texto en español es el valor canónico del catálogo.
           </p>
-          <form action={createFilterOptionAction} className="mt-3 space-y-3">
+          <NotifyForm
+            action={createFilterOptionAction}
+            successMessage="Opción de filtro creada."
+            className="mt-3 space-y-3"
+          >
             <FormPendingSection className="space-y-3">
               <label className="block text-sm">
                 <span className="font-medium text-slate-700">Grupo</span>
@@ -118,7 +127,7 @@ export default async function FiltersPage({ searchParams }: PageProps) {
               </label>
               <SubmitButton pendingText="Guardando opción...">Guardar opción</SubmitButton>
             </FormPendingSection>
-          </form>
+          </NotifyForm>
         </article>
       </section>
       <FilterGroupsListClient initialGroups={clientGroups} />

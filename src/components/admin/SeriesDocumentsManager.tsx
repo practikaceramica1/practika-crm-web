@@ -1,5 +1,7 @@
 "use client";
 
+import { useAdminSnackbar } from "@/components/admin/AdminSnackbar";
+
 import { useMemo, useState } from "react";
 import { Download, ExternalLink } from "lucide-react";
 import type {
@@ -9,7 +11,6 @@ import type {
   UploadSeriesDocumentsResult,
 } from "@/app/admin/series/actions";
 import { DocumentDropzoneForm } from "./DocumentDropzoneForm";
-import { Snackbar } from "./Snackbar";
 
 type AssetType = "technical_panel" | "catalog_pdf" | "ambient_image";
 
@@ -96,7 +97,7 @@ export function SeriesDocumentsManager({
   const [assets, setAssets] = useState<AssetRow[]>(initialAssets);
   const [editingName, setEditingName] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<Record<string, boolean>>({});
-  const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const { notify } = useAdminSnackbar();
 
   const resolveUrl = (asset: AssetRow) =>
     asset.publicUrl || buildPublicUrl(asset.storage_provider, asset.file_key, r2BaseUrl, cloudinaryCloudName);
@@ -128,10 +129,10 @@ export function SeriesDocumentsManager({
     try {
       const result = await renameAction(fd);
       upsertAssets([result.asset]);
-      setSnackbar({ type: "success", message: "Archivo renombrado" });
+      notify({ type: "success", message: "Archivo renombrado" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "No se pudo renombrar el archivo";
-      setSnackbar({ type: "error", message });
+      notify({ type: "error", message });
     } finally {
       setPending((p) => ({ ...p, [asset.id]: false }));
     }
@@ -144,10 +145,10 @@ export function SeriesDocumentsManager({
     try {
       await deleteAction(fd);
       setAssets((prev) => prev.filter((a) => a.id !== asset.id));
-      setSnackbar({ type: "success", message: "Archivo eliminado" });
+      notify({ type: "success", message: "Archivo eliminado" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "No se pudo eliminar el archivo";
-      setSnackbar({ type: "error", message });
+      notify({ type: "error", message });
     } finally {
       setPending((p) => ({ ...p, [asset.id]: false }));
     }
@@ -182,7 +183,7 @@ export function SeriesDocumentsManager({
               registerPdfAsset={pdfRegisterAction}
               onUploaded={(newAssets) => {
                 upsertAssets(newAssets);
-                setSnackbar({ type: "success", message: "Panel técnico subido" });
+                notify({ type: "success", message: "Panel técnico subido" });
               }}
             />
             <DocumentDropzoneForm
@@ -194,7 +195,7 @@ export function SeriesDocumentsManager({
               registerPdfAsset={pdfRegisterAction}
               onUploaded={(newAssets) => {
                 upsertAssets(newAssets);
-                setSnackbar({ type: "success", message: "Catálogo subido" });
+                notify({ type: "success", message: "Catálogo subido" });
               }}
             />
             <DocumentDropzoneForm
@@ -208,7 +209,7 @@ export function SeriesDocumentsManager({
               registerAmbientR2StagingAsset={ambientR2StagingRegisterAction}
               onUploaded={(newAssets) => {
                 upsertAssets(newAssets);
-                setSnackbar({ type: "success", message: "Ambientes subidos" });
+                notify({ type: "success", message: "Ambientes subidos" });
               }}
             />
           </div>
@@ -320,7 +321,6 @@ export function SeriesDocumentsManager({
           </div>
         </article>
       </section>
-      <Snackbar value={snackbar} onClose={() => setSnackbar(null)} />
     </>
   );
 }

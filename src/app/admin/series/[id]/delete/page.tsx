@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { deleteSeriesAction } from "../../actions";
 import { FormPendingSection } from "@/components/admin/FormPendingSection";
+import { NotifyForm } from "@/components/admin/NotifyForm";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 
 type Props = {
@@ -26,7 +27,7 @@ export default async function DeleteSeriesPage({ params }: Props) {
           (formatos, colores, filtros asociados y documentos registrados).
         </p>
 
-        <form action={deleteSeriesAction} className="mt-5 flex items-center gap-3">
+        <NotifyForm action={deleteSeriesAction} notifySuccess={false} className="mt-5 flex items-center gap-3">
           <FormPendingSection className="flex items-center gap-3">
             <input type="hidden" name="seriesId" value={series.id} />
             <SubmitButton
@@ -40,7 +41,7 @@ export default async function DeleteSeriesPage({ params }: Props) {
               Cancelar
             </Link>
           </FormPendingSection>
-        </form>
+        </NotifyForm>
       </section>
     </main>
   );

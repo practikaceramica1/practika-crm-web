@@ -9,6 +9,7 @@ import { MultiFilterPicker } from "@/components/admin/MultiFilterPicker";
 import { ColorBulkCreateCard } from "@/components/admin/ColorBulkCreateCard";
 import { ColorImageUploadButton } from "@/components/admin/ColorImageUploadButton";
 import { FormPendingSection } from "@/components/admin/FormPendingSection";
+import { NotifyForm } from "@/components/admin/NotifyForm";
 import { SeriesDocumentsManager } from "@/components/admin/SeriesDocumentsManager";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 import {
@@ -323,16 +324,20 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
               )}
             </div>
             <p className="mt-1 text-sm text-slate-500">Vista modular por pasos · {series.slug}</p>
-            <form action={renameSeriesAction} className="mt-3 flex flex-wrap items-center gap-2">
+            <NotifyForm
+              action={renameSeriesAction}
+              successMessage="Nombre de la serie guardado."
+              className="mt-3 flex flex-wrap items-center gap-2"
+            >
               <input type="hidden" name="seriesId" value={series.id} />
               <input className="input min-w-64" name="name" defaultValue={series.name} required minLength={2} />
               <SubmitButton className="btn-secondary text-xs" pendingText="Guardando nombre...">
                 Guardar nombre serie
               </SubmitButton>
-            </form>
+            </NotifyForm>
           </div>
           <div className="flex items-center gap-3">
-            <form action={toggleSeriesNewAction}>
+            <NotifyForm action={toggleSeriesNewAction} successMessage="Novedad actualizada.">
               <input type="hidden" name="seriesId" value={series.id} />
               <input type="hidden" name="isNew" value={series.is_new ? "false" : "true"} />
               <button
@@ -345,7 +350,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
               >
                 {series.is_new ? "Quitar novedad" : "Marcar como novedad"}
               </button>
-            </form>
+            </NotifyForm>
             <Link
               href={`/admin/series/${series.id}/delete`}
               className="inline-flex items-center justify-center rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
@@ -508,14 +513,14 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                         : 100;
                     return (
                     <article key={c.id} className="rounded-lg border border-slate-200 p-3">
-                      <form action={renameArticleColorAction} className="space-y-2">
+                      <NotifyForm action={renameArticleColorAction} successMessage="Nombre del color guardado." className="space-y-2">
                         <input type="hidden" name="seriesId" value={series.id} />
                         <input type="hidden" name="articleColorId" value={c.id} />
                         <input className="input font-semibold" name="name" defaultValue={c.color_name} required minLength={2} />
                         <SubmitButton className="btn-secondary text-xs" pendingText="Guardando color...">
                           Guardar nombre color
                         </SubmitButton>
-                      </form>
+                      </NotifyForm>
                       <p className="text-xs text-slate-500">{c.variant_type === "c3" ? "Antideslizante (C3)" : c.variant_type}</p>
                       {c.sku ? (
                         <div className="mt-2">
@@ -542,7 +547,11 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                           Sin imagen de color
                         </div>
                       )}
-                      <form action={setArticleColorImageRotationAction} className="mt-2 space-y-2 rounded-md border border-slate-100 bg-slate-50/80 p-2">
+                      <NotifyForm
+                        action={setArticleColorImageRotationAction}
+                        successMessage="Visualización web guardada."
+                        className="mt-2 space-y-2 rounded-md border border-slate-100 bg-slate-50/80 p-2"
+                      >
                         <input type="hidden" name="seriesId" value={series.id} />
                         <input type="hidden" name="articleColorId" value={c.id} />
                         <p className="text-xs font-medium text-slate-600">Visualización en la web</p>
@@ -601,7 +610,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                         <SubmitButton className="btn-secondary text-xs" pendingText="Guardando…">
                           Guardar visualización web
                         </SubmitButton>
-                      </form>
+                      </NotifyForm>
                       <p className="mt-2 mb-1 text-[11px] leading-snug text-slate-500">
                         Si no había filtros guardados para este color, se precargan los del formato o de la serie. Pulsa «Guardar filtros color» para grabarlos en la base de datos en este color.
                       </p>
@@ -629,7 +638,11 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                         signUploadAction={signSeriesR2ColorUploadAction}
                         setColorImageAction={setArticleColorImageAction}
                       />
-                      <form action={deleteArticleColorAction} className="mt-3 border-t border-slate-100 pt-3">
+                      <NotifyForm
+                        action={deleteArticleColorAction}
+                        successMessage="Color eliminado."
+                        className="mt-3 border-t border-slate-100 pt-3"
+                      >
                         <FormPendingSection>
                           <input type="hidden" name="seriesId" value={series.id} />
                           <input type="hidden" name="articleColorId" value={c.id} />
@@ -641,7 +654,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                             Eliminar color
                           </SubmitButton>
                         </FormPendingSection>
-                      </form>
+                      </NotifyForm>
                     </article>
                     );
                   })}

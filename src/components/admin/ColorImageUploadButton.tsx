@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useAdminSnackbar } from "@/components/admin/AdminSnackbar";
 import { preprocessColorUploadFile } from "@/lib/uploads/ambientClientToJpeg";
-import { Snackbar } from "./Snackbar";
 
 type SignResult = { ok: true; putUrl: string; fileKey: string; contentType: string } | { ok: false; message: string };
 
@@ -25,12 +25,11 @@ export function ColorImageUploadButton({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const { notify } = useAdminSnackbar();
 
   const handlePick = async (file: File | null) => {
     if (!file) return;
     setBusy(true);
-    setSnackbar(null);
     try {
       let uploadFile = file;
       try {
@@ -68,10 +67,10 @@ export function ColorImageUploadButton({
       rfd.set("articleColorId", articleColorId);
       rfd.set("fileKey", signed.fileKey);
       await setColorImageAction(rfd);
-      setSnackbar({ type: "success", message: "Imagen del color actualizada" });
+      notify({ type: "success", message: "Imagen del color actualizada" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "No se pudo actualizar la imagen";
-      setSnackbar({ type: "error", message });
+      notify({ type: "error", message });
     } finally {
       if (inputRef.current) inputRef.current.value = "";
       setBusy(false);
@@ -95,7 +94,6 @@ export function ColorImageUploadButton({
         className="hidden"
         onChange={(e) => void handlePick(e.target.files?.[0] || null)}
       />
-      <Snackbar value={snackbar} onClose={() => setSnackbar(null)} />
     </>
   );
 }

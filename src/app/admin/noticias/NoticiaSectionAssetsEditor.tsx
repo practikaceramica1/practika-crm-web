@@ -1,8 +1,9 @@
 "use client";
 
+import { useAdminSnackbar } from "@/components/admin/AdminSnackbar";
+
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Snackbar } from "@/components/admin/Snackbar";
 import type { NewsSectionAssetRow } from "./actions";
 import {
   deleteNewsAssetAction,
@@ -35,7 +36,6 @@ function EditableAssetRow({
   onToggleFav,
   onRemove,
   onTitleSaved,
-  setSnackbar,
 }: {
   a: NewsSectionAssetRow;
   bucket: "favorite" | "standard";
@@ -45,8 +45,8 @@ function EditableAssetRow({
   onToggleFav: (id: string) => void;
   onRemove: (id: string) => void;
   onTitleSaved: (id: string, title: string | null) => void;
-  setSnackbar: (v: { type: "success" | "error"; message: string } | null) => void;
 }) {
+  const { notify } = useAdminSnackbar();
   const [draft, setDraft] = useState(a.title ?? "");
   useEffect(() => {
     setDraft(a.title ?? "");
@@ -63,9 +63,9 @@ function EditableAssetRow({
       fd.set("title", draft);
       await updateNewsAssetTitleAction(fd);
       onTitleSaved(a.id, draft.trim() || null);
-      setSnackbar({ type: "success", message: "Título guardado." });
+      notify({ type: "success", message: "Título guardado." });
     } catch (e) {
-      setSnackbar({ type: "error", message: e instanceof Error ? e.message : "No se pudo guardar el título." });
+      notify({ type: "error", message: e instanceof Error ? e.message : "No se pudo guardar el título." });
     }
   };
 
@@ -138,7 +138,7 @@ export function NoticiaSectionAssetsEditor({
   );
   const [favorites, setFavorites] = useState(initialFav);
   const [standard, setStandard] = useState(initialStd);
-  const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const { notify } = useAdminSnackbar();
   const [uploading, setUploading] = useState(false);
   const [uploadBucket, setUploadBucket] = useState<"favorite" | "standard">("standard");
   const dragId = useRef<string | null>(null);
@@ -172,7 +172,7 @@ export function NoticiaSectionAssetsEditor({
         await persistBucketOrder(bucket, reindexed.map((a) => a.id));
       } catch (e) {
         setList(snapshot);
-        setSnackbar({ type: "error", message: e instanceof Error ? e.message : "No se pudo guardar el orden." });
+        notify({ type: "error", message: e instanceof Error ? e.message : "No se pudo guardar el orden." });
       }
     },
     [persistBucketOrder]
@@ -201,11 +201,10 @@ export function NoticiaSectionAssetsEditor({
   const addFiles = async (list: FileList | File[] | null) => {
     const raw = Array.from(list || []).filter((f) => fileIsImageOrPdf(f));
     if (!raw.length) {
-      if (list && Array.from(list).length) setSnackbar({ type: "error", message: "Solo imágenes o PDF." });
+      if (list && Array.from(list).length) notify({ type: "error", message: "Solo imágenes o PDF." });
       return;
     }
     setUploading(true);
-    setSnackbar(null);
     const bucket = uploadBucket;
     try {
       for (const file of raw) {
@@ -240,10 +239,10 @@ export function NoticiaSectionAssetsEditor({
         regFd.set("isFavorite", bucket === "favorite" ? "true" : "false");
         await registerNewsAssetAction(regFd);
       }
-      setSnackbar({ type: "success", message: "Archivos añadidos." });
+      notify({ type: "success", message: "Archivos añadidos." });
       window.location.reload();
     } catch (e) {
-      setSnackbar({ type: "error", message: e instanceof Error ? e.message : "Error al subir." });
+      notify({ type: "error", message: e instanceof Error ? e.message : "Error al subir." });
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -257,9 +256,9 @@ export function NoticiaSectionAssetsEditor({
       await deleteNewsAssetAction(fd);
       setFavorites((p) => p.filter((x) => x.id !== id));
       setStandard((p) => p.filter((x) => x.id !== id));
-      setSnackbar({ type: "success", message: "Eliminado." });
+      notify({ type: "success", message: "Eliminado." });
     } catch (e) {
-      setSnackbar({ type: "error", message: e instanceof Error ? e.message : "No se pudo eliminar." });
+      notify({ type: "error", message: e instanceof Error ? e.message : "No se pudo eliminar." });
     }
   };
 
@@ -270,7 +269,7 @@ export function NoticiaSectionAssetsEditor({
       await toggleNewsAssetFavoriteAction(fd);
       window.location.reload();
     } catch (e) {
-      setSnackbar({ type: "error", message: e instanceof Error ? e.message : "No se pudo actualizar." });
+      notify({ type: "error", message: e instanceof Error ? e.message : "No se pudo actualizar." });
     }
   };
 
@@ -290,7 +289,6 @@ export function NoticiaSectionAssetsEditor({
       onToggleFav={toggleFav}
       onRemove={removeAsset}
       onTitleSaved={patchAssetTitle}
-      setSnackbar={setSnackbar}
     />
   );
 
@@ -383,8 +381,6 @@ export function NoticiaSectionAssetsEditor({
           ← Volver a secciones
         </Link>
       </p>
-
-      <Snackbar value={snackbar} onClose={() => setSnackbar(null)} />
     </div>
   );
 }

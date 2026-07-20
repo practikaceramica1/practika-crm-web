@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { Pencil, Plus, X } from "lucide-react";
+import { useAdminSnackbar } from "@/components/admin/AdminSnackbar";
 import { FormPendingSection } from "@/components/admin/FormPendingSection";
-import { Snackbar } from "@/components/admin/Snackbar";
+import { NotifyForm } from "@/components/admin/NotifyForm";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 import {
   addPackingAction,
@@ -174,7 +175,12 @@ function PackingsTable({
                 <td className={`${td} px-2 text-right`}>
                   {editing ? (
                     <div className="flex flex-col items-end gap-1.5">
-                      <form id={formId} action={updatePackingAction} className="flex flex-wrap items-center justify-end gap-1.5">
+                      <NotifyForm
+                        id={formId}
+                        action={updatePackingAction}
+                        successMessage="Packing guardado."
+                        className="flex flex-wrap items-center justify-end gap-1.5"
+                      >
                         <input type="hidden" name="catalogFormatMaterialId" value={catalogFormatMaterialId} />
                         <input type="hidden" name="packingId" value={p.id} />
                         <SubmitButton className="btn-secondary text-xs" pendingText="Guardando…">
@@ -188,8 +194,8 @@ function PackingsTable({
                           <X className="h-3.5 w-3.5" />
                           Cancelar
                         </button>
-                      </form>
-                      <form action={deletePackingAction}>
+                      </NotifyForm>
+                      <NotifyForm action={deletePackingAction} successMessage="Packing eliminado.">
                         <input type="hidden" name="catalogFormatMaterialId" value={catalogFormatMaterialId} />
                         <input type="hidden" name="packingId" value={p.id} />
                         <SubmitButton
@@ -200,7 +206,7 @@ function PackingsTable({
                         >
                           Eliminar
                         </SubmitButton>
-                      </form>
+                      </NotifyForm>
                     </div>
                   ) : (
                     <button
@@ -321,7 +327,7 @@ export function FormatsCatalogClient({
   const [editingFormatId, setEditingFormatId] = useState<string | null>(null);
   const [editingPackingId, setEditingPackingId] = useState<string | null>(null);
   const [addingForCatalogId, setAddingForCatalogId] = useState<string | null>(null);
-  const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const { notify } = useAdminSnackbar();
 
   const sorted = useMemo(
     () =>
@@ -361,7 +367,11 @@ export function FormatsCatalogClient({
           El formato va unido al material (y opcionalmente a una característica). Cada fila puede tener varios packings
           (proveedores).
         </p>
-        <form action={createCatalogFormatAction} className="mt-4 space-y-3">
+        <NotifyForm
+          action={createCatalogFormatAction}
+          successMessage="Formato creado."
+          className="mt-4 space-y-3"
+        >
           <FormPendingSection className="space-y-3">
             <div className="grid gap-2 md:grid-cols-4">
               <label className="block text-xs text-slate-600">
@@ -402,7 +412,7 @@ export function FormatsCatalogClient({
             </div>
             <SubmitButton pendingText="Creando…">Crear formato</SubmitButton>
           </FormPendingSection>
-        </form>
+        </NotifyForm>
       </section>
 
       <section className="space-y-2">
@@ -508,7 +518,11 @@ export function FormatsCatalogClient({
                             Cancelar
                           </button>
                         </div>
-                        <form action={updateCatalogFormatAction} className="space-y-2">
+                        <NotifyForm
+                          action={updateCatalogFormatAction}
+                          successMessage="Formato guardado."
+                          className="space-y-2"
+                        >
                           <FormPendingSection className="space-y-2">
                             <input type="hidden" name="catalogFormatMaterialId" value={row.id} />
                             <div className="grid gap-2 md:grid-cols-4">
@@ -560,7 +574,7 @@ export function FormatsCatalogClient({
                               Guardar formato
                             </SubmitButton>
                           </FormPendingSection>
-                        </form>
+                        </NotifyForm>
                       </div>
                     )}
 
@@ -614,7 +628,11 @@ export function FormatsCatalogClient({
                               Cancelar
                             </button>
                           </div>
-                          <form action={addPackingAction} className="space-y-2">
+                          <NotifyForm
+                            action={addPackingAction}
+                            successMessage="Packing añadido."
+                            className="space-y-2"
+                          >
                             <FormPendingSection className="space-y-2">
                               <input type="hidden" name="catalogFormatMaterialId" value={row.id} />
                               <PackingFields />
@@ -624,18 +642,19 @@ export function FormatsCatalogClient({
                               </label>
                               <SubmitButton pendingText="Añadiendo…">Guardar packing</SubmitButton>
                             </FormPendingSection>
-                          </form>
+                          </NotifyForm>
                         </div>
                       ) : null}
                     </div>
 
-                    <form
+                    <NotifyForm
                       action={deleteCatalogFormatAction}
+                      successMessage="Formato eliminado del catálogo."
                       className="border-t border-slate-100 pt-3"
                       onSubmit={(e) => {
                         if (row.seriesCount > 0) {
                           e.preventDefault();
-                          setSnackbar({
+                          notify({
                             type: "error",
                             message: "Quita este formato de las series antes de eliminarlo del catálogo.",
                           });
@@ -651,7 +670,7 @@ export function FormatsCatalogClient({
                       >
                         Eliminar formato del catálogo
                       </SubmitButton>
-                    </form>
+                    </NotifyForm>
                   </div>
                 ) : null}
               </li>
@@ -659,8 +678,6 @@ export function FormatsCatalogClient({
           })}
         </ul>
       </section>
-
-      <Snackbar value={snackbar} onClose={() => setSnackbar(null)} />
     </div>
   );
 }

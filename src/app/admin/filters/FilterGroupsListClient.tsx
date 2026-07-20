@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { useAdminSnackbar } from "@/components/admin/AdminSnackbar";
 import { FormPendingSection } from "@/components/admin/FormPendingSection";
+import { NotifyForm } from "@/components/admin/NotifyForm";
 import { SubmitButton } from "@/components/admin/SubmitButton";
-import { Snackbar } from "@/components/admin/Snackbar";
 import {
   deleteFilterOptionAction,
   reorderFilterGroupsAction,
@@ -40,7 +41,7 @@ export default function FilterGroupsListClient({ initialGroups }: { initialGroup
     initialGroups.map((g) => ({ ...g, options: sortOptionsForGroup(g.key, g.options) }))
   );
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set(initialGroups.map((g) => g.id)));
-  const [snackbar, setSnackbar] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const { notify } = useAdminSnackbar();
   const dragGroupId = useRef<string | null>(null);
   const dragOptionId = useRef<string | null>(null);
 
@@ -64,13 +65,13 @@ export default function FilterGroupsListClient({ initialGroups }: { initialGroup
       setGroups(reindexed);
       try {
         await persistGroupOrder(reindexed);
-        setSnackbar({ type: "success", message: "Orden de grupos guardado." });
+        notify({ type: "success", message: "Orden de grupos guardado." });
       } catch (e) {
         setGroups(snapshot);
-        setSnackbar({ type: "error", message: e instanceof Error ? e.message : "No se pudo guardar el orden." });
+        notify({ type: "error", message: e instanceof Error ? e.message : "No se pudo guardar el orden." });
       }
     },
-    [groups, persistGroupOrder]
+    [groups, persistGroupOrder, notify]
   );
 
   const moveMaterialOption = useCallback(
@@ -95,13 +96,13 @@ export default function FilterGroupsListClient({ initialGroups }: { initialGroup
         const fd = new FormData();
         fd.set("orderedIdsJson", JSON.stringify(reindexed.map((o) => o.id)));
         await reorderMaterialOptionsAction(fd);
-        setSnackbar({ type: "success", message: "Orden de materiales guardado (packing-list)." });
+        notify({ type: "success", message: "Orden de materiales guardado (packing-list)." });
       } catch (e) {
         setGroups(snapshot);
-        setSnackbar({ type: "error", message: e instanceof Error ? e.message : "No se pudo guardar el orden." });
+        notify({ type: "error", message: e instanceof Error ? e.message : "No se pudo guardar el orden." });
       }
     },
-    [groups]
+    [groups, notify]
   );
 
   const toggleGroup = (id: string) => {
@@ -218,7 +219,11 @@ export default function FilterGroupsListClient({ initialGroups }: { initialGroup
                         }}
                         className={`rounded-lg border p-2 ${opt.is_active ? "border-emerald-100 bg-emerald-50/30" : "border-slate-200 bg-slate-50"}`}
                       >
-                        <form action={updateFilterOptionAction} className="space-y-2">
+                        <NotifyForm
+                          action={updateFilterOptionAction}
+                          successMessage="Opción actualizada."
+                          className="space-y-2"
+                        >
                           <FormPendingSection className="space-y-2">
                             <input type="hidden" name="optionId" value={opt.id} />
                             <div className="flex flex-wrap items-center gap-2">
@@ -251,8 +256,8 @@ export default function FilterGroupsListClient({ initialGroups }: { initialGroup
                               />
                             </label>
                           </FormPendingSection>
-                        </form>
-                        <form action={deleteFilterOptionAction} className="mt-2">
+                        </NotifyForm>
+                        <NotifyForm action={deleteFilterOptionAction} successMessage="Opción eliminada." className="mt-2">
                           <input type="hidden" name="optionId" value={opt.id} />
                           <SubmitButton
                             className="text-xs text-red-600 hover:underline"
@@ -262,7 +267,7 @@ export default function FilterGroupsListClient({ initialGroups }: { initialGroup
                           >
                             Eliminar
                           </SubmitButton>
-                        </form>
+                        </NotifyForm>
                       </div>
                     ))
                   )}
@@ -272,8 +277,6 @@ export default function FilterGroupsListClient({ initialGroups }: { initialGroup
           );
         })}
       </ul>
-
-      <Snackbar value={snackbar} onClose={() => setSnackbar(null)} />
     </section>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { FormPendingSection } from "@/components/admin/FormPendingSection";
+import { NotifyForm } from "@/components/admin/NotifyForm";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 import {
   assignCatalogFormatAction,
@@ -67,7 +68,11 @@ export function SeriesFormatsAssignClient({
             No hay más formatos del catálogo disponibles para asignar. Crea uno en Formatos o quita uno de esta serie.
           </p>
         ) : (
-          <form action={assignCatalogFormatAction} className="mt-3 grid gap-2 md:grid-cols-3">
+          <NotifyForm
+            action={assignCatalogFormatAction}
+            successMessage="Formato asignado a la serie."
+            className="mt-3 grid gap-2 md:grid-cols-3"
+          >
             <FormPendingSection className="contents">
               <input type="hidden" name="seriesId" value={seriesId} />
               <label className="block text-xs text-slate-600 md:col-span-1">
@@ -115,7 +120,7 @@ export function SeriesFormatsAssignClient({
                 </SubmitButton>
               </div>
             </FormPendingSection>
-          </form>
+          </NotifyForm>
         )}
       </article>
 
@@ -143,7 +148,11 @@ export function SeriesFormatsAssignClient({
                     ) : null}
                   </p>
                 </div>
-                <form action={updateSeriesFormatPackingAction} className="space-y-2">
+                <NotifyForm
+                  action={updateSeriesFormatPackingAction}
+                  successMessage="Packing de la serie guardado."
+                  className="space-y-2"
+                >
                   <FormPendingSection className="space-y-2">
                     <input type="hidden" name="seriesId" value={seriesId} />
                     <input type="hidden" name="formatMaterialId" value={f.id} />
@@ -166,8 +175,12 @@ export function SeriesFormatsAssignClient({
                       Guardar packing
                     </SubmitButton>
                   </FormPendingSection>
-                </form>
-                <form action={deleteFormatMaterialAction} className="border-t border-slate-100 pt-3">
+                </NotifyForm>
+                <NotifyForm
+                  action={deleteFormatMaterialAction}
+                  successMessage="Formato quitado de la serie."
+                  className="border-t border-slate-100 pt-3"
+                >
                   <FormPendingSection>
                     <input type="hidden" name="seriesId" value={seriesId} />
                     <input type="hidden" name="formatMaterialId" value={f.id} />
@@ -179,7 +192,7 @@ export function SeriesFormatsAssignClient({
                       Quitar de la serie
                     </SubmitButton>
                   </FormPendingSection>
-                </form>
+                </NotifyForm>
               </div>
             ))
           )}

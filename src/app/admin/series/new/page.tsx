@@ -1,5 +1,6 @@
 import { createSeriesAction } from "../actions";
 import { FormPendingSection } from "@/components/admin/FormPendingSection";
+import { NotifyForm } from "@/components/admin/NotifyForm";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 
 export default function NewSeriesPage() {
@@ -9,7 +10,7 @@ export default function NewSeriesPage() {
         <h1 className="text-2xl font-semibold">Nueva serie</h1>
         <p className="mt-1 text-sm text-slate-500">Solo nombre. El resto se construye por vistas en el detalle.</p>
       </section>
-      <form action={createSeriesAction} className="card p-5">
+      <NotifyForm action={createSeriesAction} notifySuccess={false} className="card p-5">
         <FormPendingSection>
           <label className="label">Nombre</label>
           <input name="name" className="input" placeholder="Kamen" required />
@@ -17,7 +18,7 @@ export default function NewSeriesPage() {
             Crear serie
           </SubmitButton>
         </FormPendingSection>
-      </form>
+      </NotifyForm>
     </main>
   );
 }
