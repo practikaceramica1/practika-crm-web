@@ -59,6 +59,26 @@ function isExpectedNewsAssetKey(sectionId: string, fileKey: string) {
   return fileKey.startsWith(`site/noticias/${sectionId}/`);
 }
 
+async function allocateUniqueNewsSlug(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  title: string,
+  excludeSectionId?: string
+) {
+  const base = slugify(title);
+  if (!base || base.length < 2) {
+    throw new Error("No se pudo generar un identificador desde el título.");
+  }
+  for (let n = 0; n < 50; n++) {
+    const candidate = n === 0 ? base : `${base}-${n + 1}`;
+    let q = supabase.from("news_sections").select("id").eq("slug", candidate);
+    if (excludeSectionId) q = q.neq("id", excludeSectionId);
+    const { data, error } = await q.maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return candidate;
+  }
+  throw new Error("No se pudo generar un identificador único para la sección.");
+}
+
 export type NewsSectionRow = {
   id: string;
   slug: string;
@@ -123,35 +143,45 @@ export async function getNewsSectionWithAssets(sectionId: string): Promise<{
 export async function createNewsSectionAction(formData: FormData) {
   await requireAdminUser();
   const title = String(formData.get("title") || "").trim();
-  if (title.length < 2) throw new Error("Título demasiado corto.");
-  let slug = String(formData.get("slug") || "").trim().toLowerCase();
-  if (!slug) slug = slugify(title);
-  if (!slug || slug.length < 2) throw new Error("Slug no válido.");
+  if (title.length < 2) {
+    redirect(`/admin/noticias?error=${encodeURIComponent("Título demasiado corto.")}`);
+  }
   const description = String(formData.get("description") || "").trim() || null;
 
-  const supabase = await createClient();
-  const { data: last } = await supabase
-    .from("news_sections")
-    .select("sort_order")
-    .order("sort_order", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const nextOrder = Number(last?.sort_order || 0) + 1;
+  try {
+    const supabase = await createClient();
+    const slug = await allocateUniqueNewsSlug(supabase, title);
+    const { data: last } = await supabase
+      .from("news_sections")
+      .select("sort_order")
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const nextOrder = Number(last?.sort_order || 0) + 1;
 
-  const ins = await supabase
-    .from("news_sections")
-    .insert({
-      slug,
-      title,
-      description,
-      status: "draft",
-      sort_order: nextOrder,
-    })
-    .select("id")
-    .single();
-  if (ins.error) throw new Error(ins.error.message);
-  revalidatePath("/admin/noticias");
-  redirect(`/admin/noticias/${ins.data.id}`);
+    const ins = await supabase
+      .from("news_sections")
+      .insert({
+        slug,
+        title,
+        description,
+        status: "draft",
+        sort_order: nextOrder,
+      })
+      .select("id")
+      .single();
+    if (ins.error) throw new Error(ins.error.message);
+    revalidatePath("/admin/noticias");
+    redirect(`/admin/noticias/${ins.data.id}`);
+  } catch (e) {
+    // redirect() de Next lanza un error controlado: hay que repropagarlo.
+    const digest = e && typeof e === "object" && "digest" in e ? String((e as { digest: unknown }).digest) : "";
+    if (digest.startsWith("NEXT_REDIRECT")) throw e;
+    const message = errorToUserMessage(e);
+    redirect(
+      `/admin/noticias?error=${encodeURIComponent(message || "No se pudo crear la sección.")}`
+    );
+  }
 }
 
 export async function updateNewsSectionMetaAction(formData: FormData) {
@@ -160,25 +190,26 @@ export async function updateNewsSectionMetaAction(formData: FormData) {
     .object({
       sectionId: z.string().uuid(),
       title: z.string().min(2).max(200),
-      slug: z.string().min(2).max(120),
       description: z.string().max(8000).optional(),
       status: z.enum(["draft", "published"]),
     })
     .safeParse({
       sectionId: formData.get("sectionId"),
       title: formData.get("title"),
-      slug: formData.get("slug"),
       description: formData.get("description") ?? "",
       status: formData.get("status"),
     });
   if (!parsed.success) throw new Error("Datos de sección no válidos.");
 
+  const title = parsed.data.title.trim();
   const supabase = await createClient();
+  const slug = await allocateUniqueNewsSlug(supabase, title, parsed.data.sectionId);
+
   const upd = await supabase
     .from("news_sections")
     .update({
-      title: parsed.data.title.trim(),
-      slug: parsed.data.slug.trim().toLowerCase(),
+      title,
+      slug,
       description: parsed.data.description?.trim() || null,
       status: parsed.data.status,
     })

@@ -7,18 +7,13 @@ export function CreateSectionForm() {
     <form action={createNewsSectionAction} className="card mb-6 p-5">
       <h2 className="text-lg font-semibold text-slate-900">Nueva sección</h2>
       <p className="mt-1 text-sm text-slate-600">
-        Ejemplos: <strong>novedades</strong>, <strong>ofertas</strong>, <strong>proyectos</strong>. El slug forma parte de la URL interna; el título es lo que verá el público como cabecera.
+        Ejemplos: <strong>Novedades</strong>, <strong>Ofertas</strong>, <strong>Proyectos</strong>. El título es lo
+        que verá el público como cabecera.
       </p>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <label className="block text-sm">
-          <span className="font-medium text-slate-700">Título</span>
-          <input name="title" className="input mt-1" required minLength={2} maxLength={200} placeholder="Novedades" />
-        </label>
-        <label className="block text-sm">
-          <span className="font-medium text-slate-700">Slug (opcional)</span>
-          <input name="slug" className="input mt-1" maxLength={120} placeholder="novedades" />
-        </label>
-      </div>
+      <label className="mt-4 block text-sm">
+        <span className="font-medium text-slate-700">Título</span>
+        <input name="title" className="input mt-1" required minLength={2} maxLength={200} placeholder="Novedades" />
+      </label>
       <label className="mt-3 block text-sm">
         <span className="font-medium text-slate-700">Descripción (opcional)</span>
         <textarea

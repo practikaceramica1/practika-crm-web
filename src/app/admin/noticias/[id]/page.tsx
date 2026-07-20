@@ -43,16 +43,10 @@ export default async function AdminNoticiaSectionPage({ params }: Props) {
 
       <form action={updateNewsSectionMetaAction} className="card mt-4 p-5">
         <input type="hidden" name="sectionId" value={section.id} />
-        <div className="grid gap-3 md:grid-cols-2">
-          <label className="block text-sm">
-            <span className="font-medium text-slate-700">Título</span>
-            <input name="title" className="input mt-1" required defaultValue={section.title} maxLength={200} />
-          </label>
-          <label className="block text-sm">
-            <span className="font-medium text-slate-700">Slug</span>
-            <input name="slug" className="input mt-1" required defaultValue={section.slug} maxLength={120} />
-          </label>
-        </div>
+        <label className="block text-sm">
+          <span className="font-medium text-slate-700">Título</span>
+          <input name="title" className="input mt-1" required defaultValue={section.title} maxLength={200} />
+        </label>
         <label className="mt-3 block text-sm">
           <span className="font-medium text-slate-700">Descripción (opcional)</span>
           <textarea

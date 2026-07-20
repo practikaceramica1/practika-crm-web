@@ -5,7 +5,16 @@ import { listNewsSectionsAdmin } from "./actions";
 import { CreateSectionForm } from "./CreateSectionForm";
 import NewsSectionsReorderClient from "./NewsSectionsReorderClient";
 
-export default async function AdminNoticiasPage() {
+type Props = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function AdminNoticiasPage({ searchParams }: Props) {
+  const sp = await searchParams;
+  const errorRaw = sp.error;
+  const errorMessage =
+    typeof errorRaw === "string" ? errorRaw : Array.isArray(errorRaw) ? errorRaw[0] : null;
+
   let sections: Awaited<ReturnType<typeof listNewsSectionsAdmin>> = [];
   try {
     sections = await listNewsSectionsAdmin();
@@ -30,10 +39,20 @@ export default async function AdminNoticiasPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Noticias (web)</h1>
           <p className="text-sm text-slate-600">
-            Crea secciones (Novedades, Ofertas, Proyectos…), añade descripción, archivos destacados y ordena todo desde aquí.
+            Crea secciones (Novedades, Ofertas, Proyectos…), añade descripción, archivos destacados y ordena todo desde
+            aquí.
           </p>
         </div>
       </div>
+
+      {errorMessage ? (
+        <div
+          className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+          role="alert"
+        >
+          {errorMessage}
+        </div>
+      ) : null}
 
       <CreateSectionForm />
       {sections.length === 0 ? (

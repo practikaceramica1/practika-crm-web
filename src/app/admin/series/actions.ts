@@ -22,6 +22,7 @@ import {
   signAmbientImageUpload,
   uploadImageToCloudinary,
 } from "@/lib/uploads/cloudinary";
+import { notifyPractikaWebCache } from "@/lib/notifyPractikaWebCache";
 
 const createSeriesSchema = z.object({ name: z.string().min(2) });
 const toggleSeriesNewSchema = z.object({
@@ -848,6 +849,13 @@ export async function setArticleColorImageRotationAction(formData: FormData) {
 
   revalidatePath(`/admin/series/${seriesId}`);
   revalidatePath("/admin/formats");
+
+  // Solo actualiza 3 campos de visualización; no toca el resto de la serie.
+  // Avisa a la web para refrescar la ficha (sin tumbar el guardado si falla).
+  const seriesSlug = await supabase.from("series").select("slug").eq("id", seriesId).maybeSingle();
+  if (seriesSlug.data?.slug) {
+    await notifyPractikaWebCache({ slug: String(seriesSlug.data.slug) });
+  }
 }
 
 export async function setSeriesFiltersAction(formData: FormData) {
