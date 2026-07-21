@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
+import { signalAppNavigationStart } from "@/components/admin/NavigationProgress";
 import type { AdminSeriesSearchItem } from "@/lib/adminSeriesSearchTypes";
 
 function normalizeSearch(text: string): string {
@@ -75,6 +76,7 @@ export function AdminSeriesSearch({ series }: { series: AdminSeriesSearchItem[] 
     setIsOpen(false);
     setValue("");
     inputRef.current?.blur();
+    signalAppNavigationStart();
     router.push(`/admin/series/${item.id}`);
   }
 

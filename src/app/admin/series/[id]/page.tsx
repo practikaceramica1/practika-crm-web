@@ -7,21 +7,15 @@ import { SetupRequired } from "@/components/admin/SetupRequired";
 import { isSchemaNotReadyError } from "@/lib/supabase/error-handling";
 import { MultiFilterPicker } from "@/components/admin/MultiFilterPicker";
 import { ColorBulkCreateCard } from "@/components/admin/ColorBulkCreateCard";
-import { ColorImageUploadButton } from "@/components/admin/ColorImageUploadButton";
-import { FormPendingSection } from "@/components/admin/FormPendingSection";
 import { NotifyForm } from "@/components/admin/NotifyForm";
 import { SeriesDocumentsManager } from "@/components/admin/SeriesDocumentsManager";
+import { SeriesFormatColorsClient } from "@/components/admin/SeriesFormatColorsClient";
 import { SubmitButton } from "@/components/admin/SubmitButton";
 import {
   addColorsBulkAction,
-  deleteArticleColorAction,
   deleteSeriesAssetAction,
-  renameArticleColorAction,
   renameSeriesAction,
   renameSeriesAssetAction,
-  setArticleColorImageAction,
-  setArticleColorImageRotationAction,
-  setColorFiltersAction,
   setFormatFiltersAction,
   setSeriesFiltersAction,
   toggleSeriesNewAction,
@@ -148,8 +142,9 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
     needsColors && formatIds.length > 0
       ? await supabase
           .from("article_colors")
-          .select("id,color_name,variant_type,format_material_id,sku,image_rotation_degrees,image_web_object_fit,image_web_zoom_percent")
+          .select("id,color_name,variant_type,format_material_id,sku,image_rotation_degrees,image_web_object_fit,image_web_zoom_percent,sort_order")
           .in("format_material_id", formatIds)
+          .order("sort_order", { ascending: true })
           .order("created_at", { ascending: true })
       : { data: [], error: null };
 
@@ -259,12 +254,20 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
     image_rotation_degrees?: number | null;
     image_web_object_fit?: string | null;
     image_web_zoom_percent?: number | null;
+    sort_order?: number | null;
   }>;
   const colorsByFormat = colorRows.reduce<Record<string, typeof colorRows>>((acc, c) => {
     if (!acc[c.format_material_id]) acc[c.format_material_id] = [];
     acc[c.format_material_id].push(c);
     return acc;
   }, {});
+  Object.keys(colorsByFormat).forEach((formatId) => {
+    colorsByFormat[formatId].sort(
+      (a, b) =>
+        Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0) ||
+        a.color_name.localeCompare(b.color_name, "es")
+    );
+  });
   const sortedFormats = [...(formats || [])].sort((a, b) => {
     const [aw, ah] = parseFormatForSort(a.format_label);
     const [bw, bh] = parseFormatForSort(b.format_label);
@@ -294,9 +297,6 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
       selectedPackingId: (f as { selected_packing_id?: string | null }).selected_packing_id || null,
       packings,
     };
-  });
-  Object.keys(colorsByFormat).forEach((formatId) => {
-    colorsByFormat[formatId].sort((a, b) => a.color_name.localeCompare(b.color_name, "es"));
   });
   const seriesFilterIds = (seriesFilters || []).map((x) => x.filter_option_id);
   const formatFilterIdsByFormat = (formatFilters || []).reduce<Record<string, string[]>>((acc, row) => {
@@ -496,169 +496,40 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
                     />
                   </div>
                 </div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                  {(colorsByFormat[f.id] || []).map((c) => {
-                    const colorImageUrl = c.sku ? getAssetPublicUrl("r2", String(c.sku)) : "";
-                    const rotationDeg =
-                      typeof c.image_rotation_degrees === "number" &&
-                      [0, 90, 180, 270].includes(c.image_rotation_degrees)
-                        ? c.image_rotation_degrees
-                        : 0;
-                    const webObjectFit =
-                      c.image_web_object_fit === "cover" ? "cover" : "contain";
-                    const zoomPercent =
-                      typeof c.image_web_zoom_percent === "number" &&
-                      Number.isFinite(c.image_web_zoom_percent)
-                        ? Math.min(300, Math.max(25, Math.round(c.image_web_zoom_percent)))
-                        : 100;
-                    return (
-                    <article key={c.id} className="rounded-lg border border-slate-200 p-3">
-                      <NotifyForm action={renameArticleColorAction} successMessage="Nombre del color guardado." className="space-y-2">
-                        <input type="hidden" name="seriesId" value={series.id} />
-                        <input type="hidden" name="articleColorId" value={c.id} />
-                        <input className="input font-semibold" name="name" defaultValue={c.color_name} required minLength={2} />
-                        <SubmitButton className="btn-secondary text-xs" pendingText="Guardando color...">
-                          Guardar nombre color
-                        </SubmitButton>
-                      </NotifyForm>
-                      <p className="text-xs text-slate-500">{c.variant_type === "c3" ? "Antideslizante (C3)" : c.variant_type}</p>
-                      {c.sku ? (
-                        <div className="mt-2">
-                          {colorImageUrl ? (
-                            <div className="flex h-36 w-full items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-50">
-                              <img
-                                src={colorImageUrl}
-                                alt={c.color_name}
-                                className={`h-full w-full ${webObjectFit === "cover" ? "object-cover" : "object-contain"}`}
-                                style={{
-                                  transform: `rotate(${rotationDeg}deg) scale(${zoomPercent / 100})`,
-                                }}
-                                loading="lazy"
-                              />
-                            </div>
-                          ) : (
-                            <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-2 text-xs text-amber-900">
-                              Falta <code className="rounded bg-amber-100 px-1">NEXT_PUBLIC_R2_PUBLIC_BASE_URL</code> (o equivalente) para mostrar la imagen.
-                            </p>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="mt-2 rounded-md border border-dashed border-slate-300 bg-slate-50 px-2 py-3 text-xs text-slate-500">
-                          Sin imagen de color
-                        </div>
-                      )}
-                      <NotifyForm
-                        action={setArticleColorImageRotationAction}
-                        successMessage="Visualización web guardada."
-                        className="mt-2 space-y-2 rounded-md border border-slate-100 bg-slate-50/80 p-2"
-                      >
-                        <input type="hidden" name="seriesId" value={series.id} />
-                        <input type="hidden" name="articleColorId" value={c.id} />
-                        <p className="text-xs font-medium text-slate-600">Visualización en la web</p>
-                        <p className="text-[11px] leading-snug text-slate-500">
-                          No modifica el archivo; solo cómo se muestra en practikaceramica.com (marco del formato).
-                        </p>
-                        <div className="space-y-1">
-                          <label className="block text-[11px] font-medium text-slate-600" htmlFor={`rot-${c.id}`}>
-                            Orientación (giro)
-                          </label>
-                          <select
-                            id={`rot-${c.id}`}
-                            name="imageRotationDegrees"
-                            className="input w-full text-xs"
-                            defaultValue={String(rotationDeg)}
-                          >
-                            <option value="0">0° — tal cual la foto</option>
-                            <option value="90">90° — sentido horario</option>
-                            <option value="180">180°</option>
-                            <option value="270">270° (90° antihorario)</option>
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="block text-[11px] font-medium text-slate-600" htmlFor={`fit-${c.id}`}>
-                            Encaje / zoom en el marco
-                          </label>
-                          <select
-                            id={`fit-${c.id}`}
-                            name="imageWebObjectFit"
-                            className="input w-full text-xs"
-                            defaultValue={webObjectFit}
-                          >
-                            <option value="contain">Encajar pieza completa (sin recortar)</option>
-                            <option value="cover">Ampliar y rellenar el marco (puede recortar bordes)</option>
-                          </select>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="block text-[11px] font-medium text-slate-600" htmlFor={`zoom-${c.id}`}>
-                            Zoom en la web (%)
-                          </label>
-                          <input
-                            id={`zoom-${c.id}`}
-                            type="number"
-                            name="imageWebZoomPercent"
-                            min={25}
-                            max={300}
-                            step={5}
-                            defaultValue={zoomPercent}
-                            className="input w-full text-xs"
-                          />
-                          <p className="text-[10px] leading-snug text-slate-400">
-                            100 = tamaño base con el encaje elegido; sube el % para acercar la pieza en el marco (puede
-                            recortarse).
-                          </p>
-                        </div>
-                        <SubmitButton className="btn-secondary text-xs" pendingText="Guardando…">
-                          Guardar visualización web
-                        </SubmitButton>
-                      </NotifyForm>
-                      <p className="mt-2 mb-1 text-[11px] leading-snug text-slate-500">
-                        Si no había filtros guardados para este color, se precargan los del formato o de la serie. Pulsa «Guardar filtros color» para grabarlos en la base de datos en este color.
-                      </p>
-                      <div className="mt-2">
-                        <MultiFilterPicker
-                          groups={groupedFilters}
-                          initialSelectedIds={
-                            colorFilterIdsByColor[c.id] ??
-                            formatFilterIdsByFormat[f.id] ??
-                            seriesFilterIds
-                          }
-                          hiddenIdName="articleColorId"
-                          hiddenIdValue={c.id}
-                          saveAction={setColorFiltersAction}
-                          saveButton="Guardar filtros color"
-                          confirmMessage="¿Guardar cambios en los filtros del color?"
-                        />
-                      </div>
-                      <ColorImageUploadButton
-                        seriesId={series.id}
-                        formatMaterialId={f.id}
-                        articleColorId={c.id}
-                        colorName={c.color_name}
-                        variantType={c.variant_type === "decor" || c.variant_type === "relieve" || c.variant_type === "c3" ? c.variant_type : "regular"}
-                        signUploadAction={signSeriesR2ColorUploadAction}
-                        setColorImageAction={setArticleColorImageAction}
-                      />
-                      <NotifyForm
-                        action={deleteArticleColorAction}
-                        successMessage="Color eliminado."
-                        className="mt-3 border-t border-slate-100 pt-3"
-                      >
-                        <FormPendingSection>
-                          <input type="hidden" name="seriesId" value={series.id} />
-                          <input type="hidden" name="articleColorId" value={c.id} />
-                          <SubmitButton
-                            className="w-full border border-red-200 bg-white text-xs font-semibold text-red-700 hover:bg-red-50 sm:w-auto"
-                            pendingText="Eliminando…"
-                            confirmMessage={`¿Eliminar el color «${c.color_name}» (${c.variant_type === "c3" ? "C3" : c.variant_type})? No se puede deshacer.`}
-                          >
-                            Eliminar color
-                          </SubmitButton>
-                        </FormPendingSection>
-                      </NotifyForm>
-                    </article>
-                    );
-                  })}
-                  {(colorsByFormat[f.id] || []).length === 0 ? <p className="text-sm text-slate-500">Sin colores en este formato.</p> : null}
+                <div className="mt-4">
+                  <SeriesFormatColorsClient
+                    seriesId={series.id}
+                    formatMaterialId={f.id}
+                    initialColors={(colorsByFormat[f.id] || []).map((c) => {
+                      const rotationDeg =
+                        typeof c.image_rotation_degrees === "number" &&
+                        [0, 90, 180, 270].includes(c.image_rotation_degrees)
+                          ? c.image_rotation_degrees
+                          : 0;
+                      const webObjectFit =
+                        c.image_web_object_fit === "cover" ? "cover" : "contain";
+                      const zoomPercent =
+                        typeof c.image_web_zoom_percent === "number" &&
+                        Number.isFinite(c.image_web_zoom_percent)
+                          ? Math.min(300, Math.max(25, Math.round(c.image_web_zoom_percent)))
+                          : 100;
+                      return {
+                        id: c.id,
+                        color_name: c.color_name,
+                        variant_type: c.variant_type,
+                        sku: c.sku,
+                        sort_order: Number(c.sort_order ?? 0),
+                        colorImageUrl: c.sku ? getAssetPublicUrl("r2", String(c.sku)) : "",
+                        rotationDeg,
+                        webObjectFit: webObjectFit as "contain" | "cover",
+                        zoomPercent,
+                      };
+                    })}
+                    groupedFilters={groupedFilters}
+                    colorFilterIdsByColor={colorFilterIdsByColor}
+                    formatFilterIds={formatFilterIdsByFormat[f.id] || []}
+                    seriesFilterIds={seriesFilterIds}
+                  />
                 </div>
               </div>
             </details>

@@ -491,6 +491,27 @@ const deleteArticleColorSchema = z.object({
   seriesId: z.string().uuid(),
   articleColorId: z.string().uuid(),
 });
+
+const reorderArticleColorsSchema = z.object({
+  seriesId: z.string().uuid(),
+  formatMaterialId: z.string().uuid(),
+  orderedIdsJson: z.string().min(2),
+});
+
+async function nextArticleColorSortOrder(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  formatMaterialId: string
+) {
+  const { data, error } = await supabase
+    .from("article_colors")
+    .select("sort_order")
+    .eq("format_material_id", formatMaterialId)
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return Number(data?.sort_order || 0) + 1;
+}
 const renameArticleColorSchema = z.object({
   seriesId: z.string().uuid(),
   articleColorId: z.string().uuid(),
@@ -556,6 +577,7 @@ export async function addColorAction(formData: FormData) {
   });
   if (!parsed.success) throw new Error("Color inválido");
   const slug = slugify(parsed.data.name);
+  const sortOrder = await nextArticleColorSortOrder(supabase, parsed.data.formatMaterialId);
 
   const inserted = await supabase
     .from("article_colors")
@@ -565,6 +587,7 @@ export async function addColorAction(formData: FormData) {
       color_slug: slug,
       variant_type: parsed.data.variantType,
       status: "published",
+      sort_order: sortOrder,
     })
     .select("id")
     .single();
@@ -657,20 +680,86 @@ export async function addColorsBulkAction(formData: FormData) {
     .filter((i) => i.name.length >= 2 && i.slug.length >= 2);
   if (!clean.length) throw new Error("No hay colores válidos");
 
-  const inserted = await supabase.from("article_colors").upsert(
-    clean.map((c) => ({
+  const existing = await supabase
+    .from("article_colors")
+    .select("id,color_slug,variant_type,sort_order")
+    .eq("format_material_id", parsed.data.formatMaterialId)
+    .eq("variant_type", parsed.data.variantType);
+  if (existing.error) throw new Error(existing.error.message);
+
+  const bySlug = new Map((existing.data || []).map((r) => [r.color_slug, r]));
+  let nextOrder = await nextArticleColorSortOrder(supabase, parsed.data.formatMaterialId);
+
+  const rows = clean.map((c) => {
+    const prev = bySlug.get(c.slug);
+    const sort_order = prev ? Number(prev.sort_order || 0) : nextOrder++;
+    return {
       format_material_id: parsed.data.formatMaterialId,
       color_name: c.name,
       color_slug: c.slug,
       variant_type: parsed.data.variantType,
       sku: c.sku,
-      status: "published",
-    })),
-    { onConflict: "format_material_id,color_slug,variant_type" }
-  );
+      status: "published" as const,
+      sort_order,
+    };
+  });
+
+  const inserted = await supabase.from("article_colors").upsert(rows, {
+    onConflict: "format_material_id,color_slug,variant_type",
+  });
   if (inserted.error) throw new Error(inserted.error.message);
 
   revalidatePath(`/admin/series/${parsed.data.seriesId}`);
+}
+
+export async function reorderArticleColorsAction(formData: FormData) {
+  await requireAdminUser();
+  const supabase = await createClient();
+  const parsed = reorderArticleColorsSchema.safeParse({
+    seriesId: formData.get("seriesId"),
+    formatMaterialId: formData.get("formatMaterialId"),
+    orderedIdsJson: formData.get("orderedIdsJson"),
+  });
+  if (!parsed.success) throw new Error("Orden de colores no válido");
+
+  let orderedIds: string[] = [];
+  try {
+    orderedIds = JSON.parse(parsed.data.orderedIdsJson);
+  } catch {
+    throw new Error("Orden de colores no válido");
+  }
+  if (!Array.isArray(orderedIds) || !orderedIds.every((id) => z.string().uuid().safeParse(id).success)) {
+    throw new Error("Orden de colores no válido");
+  }
+
+  const { seriesId, formatMaterialId } = parsed.data;
+  const fm = await supabase
+    .from("format_materials")
+    .select("id")
+    .eq("id", formatMaterialId)
+    .eq("series_id", seriesId)
+    .maybeSingle();
+  if (fm.error) throw new Error(fm.error.message);
+  if (!fm.data) throw new Error("El formato no pertenece a esta serie");
+
+  const current = await supabase.from("article_colors").select("id").eq("format_material_id", formatMaterialId);
+  if (current.error) throw new Error(current.error.message);
+  const set = new Set((current.data || []).map((r) => r.id));
+  if (orderedIds.length !== set.size || !orderedIds.every((id) => set.has(id))) {
+    throw new Error("Lista de colores incompleta o incorrecta");
+  }
+
+  for (let i = 0; i < orderedIds.length; i++) {
+    const u = await supabase
+      .from("article_colors")
+      .update({ sort_order: i + 1 })
+      .eq("id", orderedIds[i])
+      .eq("format_material_id", formatMaterialId);
+    if (u.error) throw new Error(u.error.message);
+  }
+
+  revalidatePath(`/admin/series/${seriesId}`);
+  void notifyPractikaWebCache({ allProducts: true });
 }
 
 export async function deleteArticleColorAction(formData: FormData) {

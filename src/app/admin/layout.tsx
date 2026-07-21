@@ -3,6 +3,7 @@ import { requireAdminUser } from "@/lib/auth";
 import { Sidebar } from "@/components/admin/Sidebar";
 import { AdminSeriesSearch } from "@/components/admin/AdminSeriesSearch";
 import { AdminSnackbarProvider } from "@/components/admin/AdminSnackbar";
+import { NavigationProgress } from "@/components/admin/NavigationProgress";
 import { getAdminSeriesSearchIndex } from "@/lib/adminSeriesSearch";
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {
@@ -11,6 +12,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   return (
     <AdminSnackbarProvider>
+      <NavigationProgress />
       <div className="grid min-h-screen w-full grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
         <Sidebar userEmail={user.email || ""} />
         <div className="min-w-0">
