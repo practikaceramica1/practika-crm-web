@@ -154,7 +154,9 @@ export function PendientesTable({ rows }: { rows: SeriesPendingRow[] }) {
             if (colId === "name") {
               return (
                 <span className="inline-flex flex-wrap items-center gap-2">
-                  <span className="font-semibold">{row.name}</span>
+                  <Link href={`/admin/series/${row.id}`} className="font-semibold text-[#1a1f3d] hover:underline">
+                    {row.name}
+                  </Link>
                   {row.is_new ? (
                     <span className="inline-flex items-center rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
                       Nuevo
