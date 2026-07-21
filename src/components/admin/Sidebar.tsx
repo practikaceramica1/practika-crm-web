@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Download, FolderKanban, Filter, Newspaper, Ruler } from "lucide-react";
+import { ClipboardList, Download, FolderKanban, Filter, Newspaper, Ruler } from "lucide-react";
 import { FormPendingSection } from "@/components/admin/FormPendingSection";
 import { RefreshWebCacheButton } from "@/components/admin/RefreshWebCacheButton";
 import { SubmitButton } from "@/components/admin/SubmitButton";
@@ -10,13 +10,20 @@ import { signOutAction } from "@/app/admin/actions";
 
 const links = [
   { href: "/admin/series", label: "Series", hint: "Constructor", icon: FolderKanban },
+  { href: "/admin/pendientes", label: "Pendientes", hint: "Checklist", icon: ClipboardList },
   { href: "/admin/noticias", label: "Noticias", hint: "Web", icon: Newspaper },
   { href: "/admin/descargas-catalogos", label: "Catálogos (descargas)", hint: "Web", icon: Download },
   { href: "/admin/formats", label: "Formatos", hint: "Global", icon: Ruler },
   { href: "/admin/filters", label: "Filtros", hint: "Catálogo", icon: Filter },
 ];
 
-export function Sidebar({ userEmail }: { userEmail: string }) {
+export function Sidebar({
+  userEmail,
+  pendingCount = 0,
+}: {
+  userEmail: string;
+  pendingCount?: number;
+}) {
   const pathname = usePathname();
 
   return (
@@ -29,6 +36,7 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
         {links.map((link) => {
           const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
           const Icon = link.icon;
+          const showBadge = link.href === "/admin/pendientes" && pendingCount > 0;
           return (
             <Link
               key={link.href}
@@ -39,9 +47,16 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
                   : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-white"
               }`}
             >
-              <Icon className="mt-0.5 h-4 w-4" />
-              <span>
-                <span className="block text-sm font-semibold">{link.label}</span>
+              <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className="block text-sm font-semibold">{link.label}</span>
+                  {showBadge ? (
+                    <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      {pendingCount > 99 ? "99+" : pendingCount}
+                    </span>
+                  ) : null}
+                </span>
                 <span className="block text-xs text-slate-500">{link.hint}</span>
               </span>
             </Link>

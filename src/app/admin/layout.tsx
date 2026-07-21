@@ -5,16 +5,20 @@ import { AdminSeriesSearch } from "@/components/admin/AdminSeriesSearch";
 import { AdminSnackbarProvider } from "@/components/admin/AdminSnackbar";
 import { NavigationProgress } from "@/components/admin/NavigationProgress";
 import { getAdminSeriesSearchIndex } from "@/lib/adminSeriesSearch";
+import { getSeriesPendingSummary } from "@/lib/seriesPending";
 
 export default async function AdminLayout({ children }: { children: ReactNode }) {
   const user = await requireAdminUser();
-  const seriesSearch = await getAdminSeriesSearchIndex();
+  const [seriesSearch, pending] = await Promise.all([
+    getAdminSeriesSearchIndex(),
+    getSeriesPendingSummary().catch(() => ({ rows: [], incompleteCount: 0 })),
+  ]);
 
   return (
     <AdminSnackbarProvider>
       <NavigationProgress />
       <div className="grid min-h-screen w-full grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <Sidebar userEmail={user.email || ""} />
+        <Sidebar userEmail={user.email || ""} pendingCount={pending.incompleteCount} />
         <div className="min-w-0">
           <header className="border-b border-slate-200 bg-white/95 px-6 py-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
