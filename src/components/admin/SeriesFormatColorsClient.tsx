@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAdminSnackbar } from "@/components/admin/AdminSnackbar";
 import { ColorImageUploadButton } from "@/components/admin/ColorImageUploadButton";
 import { FormPendingSection } from "@/components/admin/FormPendingSection";
@@ -94,6 +95,17 @@ export function SeriesFormatColorsClient({
     [colors, persistOrder, notify]
   );
 
+  const moveByOffset = useCallback(
+    async (id: string, offset: -1 | 1) => {
+      const i = colors.findIndex((x) => x.id === id);
+      if (i < 0) return;
+      const j = i + offset;
+      if (j < 0 || j >= colors.length) return;
+      await moveItem(id, colors[j].id);
+    },
+    [colors, moveItem]
+  );
+
   if (colors.length === 0) {
     return <p className="text-sm text-slate-500">Sin colores en este formato.</p>;
   }
@@ -101,16 +113,18 @@ export function SeriesFormatColorsClient({
   return (
     <div className="space-y-2">
       <p className="text-[11px] text-slate-500">
-        Arrastra <span className="font-medium text-slate-700">⋮⋮</span> para ordenar cómo aparecen en la web (de
-        izquierda a derecha).
+        Usa las flechas o arrastra <span className="font-medium text-slate-700">⋮⋮</span> para ordenar cómo aparecen en
+        la web (de izquierda a derecha).
       </p>
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        {colors.map((c) => {
+        {colors.map((c, index) => {
           const variantLabel = c.variant_type === "c3" ? "Antideslizante (C3)" : c.variant_type;
           const variantType =
             c.variant_type === "decor" || c.variant_type === "relieve" || c.variant_type === "c3"
               ? c.variant_type
               : "regular";
+          const canMoveLeft = index > 0;
+          const canMoveRight = index < colors.length - 1;
           return (
             <article
               key={c.id}
@@ -139,6 +153,28 @@ export function SeriesFormatColorsClient({
                   ⋮⋮
                 </span>
                 <span className="text-[11px] font-medium tabular-nums text-slate-400">#{c.sort_order}</span>
+                <div className="ml-auto flex items-center gap-1">
+                  <button
+                    type="button"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35"
+                    disabled={!canMoveLeft}
+                    onClick={() => void moveByOffset(c.id, -1)}
+                    title="Mover a la izquierda"
+                    aria-label={`Mover ${c.color_name} a la izquierda`}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-35"
+                    disabled={!canMoveRight}
+                    onClick={() => void moveByOffset(c.id, 1)}
+                    title="Mover a la derecha"
+                    aria-label={`Mover ${c.color_name} a la derecha`}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
               <NotifyForm
                 action={renameArticleColorAction}
