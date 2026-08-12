@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { FileText, Filter, Layers3, Palette } from "lucide-react";
+import { FileText, Filter, Layers3, Palette, QrCode } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getAssetPublicUrl, resolveR2PublicBaseUrl } from "@/lib/storageUrl";
 import { SetupRequired } from "@/components/admin/SetupRequired";
@@ -33,6 +33,8 @@ import {
   type CatalogOption,
 } from "@/components/admin/SeriesFormatsAssignClient";
 import { buildPackingOptionLabel } from "@/lib/formatDisplay";
+import { getSeriesPublicUrl } from "@/lib/seriesPublicUrl";
+import { SeriesPublicLinkQr } from "@/components/admin/SeriesPublicLinkQr";
 
 /** Subidas grandes (p. ej. TIFF) por Server Action en esta ruta. En Vercel depende del plan. */
 export const maxDuration = 300;
@@ -364,6 +366,7 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
           <Link href={`/admin/series/${series.id}?view=formats`} className={tabClass(view === "formats")}><Layers3 className="h-4 w-4" />Formatos y materiales</Link>
           <Link href={`/admin/series/${series.id}?view=colors`} className={tabClass(view === "colors")}><Palette className="h-4 w-4" />Artículos / colores</Link>
           <Link href={`/admin/series/${series.id}?view=filters`} className={tabClass(view === "filters")}><Filter className="h-4 w-4" />Filtros</Link>
+          <Link href={`/admin/series/${series.id}?view=qr`} className={tabClass(view === "qr")}><QrCode className="h-4 w-4" />QR web</Link>
         </div>
       </section>
 
@@ -433,6 +436,22 @@ export default async function SeriesDetailPage({ params, searchParams }: Props) 
               ))}
             </div>
           </article>
+        </section>
+      ) : null}
+
+      {view === "qr" ? (
+        <section className="card p-5">
+          <h2 className="text-lg font-semibold">QR para la web</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Código para paneles técnicos o material impreso. Al escanearlo se abre la ficha pública de la serie.
+          </p>
+          <div className="mt-4">
+            <SeriesPublicLinkQr
+              publicUrl={getSeriesPublicUrl(series.slug)}
+              slug={series.slug}
+              name={series.name}
+            />
+          </div>
         </section>
       ) : null}
 

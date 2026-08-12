@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { SetupRequired } from "@/components/admin/SetupRequired";
 import { SeriesListTable } from "@/components/admin/SeriesListTable";
+import { SeriesBulkQrDownload } from "@/components/admin/SeriesBulkQrDownload";
 import { formatLabelFromCm } from "@/lib/formatDisplay";
 import { isSchemaNotReadyError } from "@/lib/supabase/error-handling";
 
@@ -70,12 +71,15 @@ export default async function SeriesPage() {
     <main className="space-y-6">
       <section className="card flex items-center justify-between p-5">
         <div>
-          <h1 className="text-2xl font-semibold">Series</h1>
+          <h1 className="text-2xl font-semibold">Series ({rows.length})</h1>
           <p className="text-sm text-slate-500">Cada serie se gestiona en vista separada con pasos.</p>
         </div>
-        <Link href="/admin/series/new" className="btn-primary">
-          Nueva serie
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <SeriesBulkQrDownload seriesCount={rows.length} />
+          <Link href="/admin/series/new" className="btn-primary">
+            Nueva serie
+          </Link>
+        </div>
       </section>
       <section className="card overflow-hidden">
         <SeriesListTable rows={rows} />

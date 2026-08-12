@@ -2,6 +2,12 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
+  async redirects() {
+    return [
+      { source: "/", destination: "/admin/series", permanent: false },
+      { source: "/admin", destination: "/admin/series", permanent: false },
+    ];
+  },
   // Las subidas (PDF, imágenes) van por Server Action; el límite por defecto es 1 MB.
   experimental: {
     serverActions: {
